@@ -62,7 +62,9 @@ def template_draft(facts: FactPack) -> str:
 
     keys = [fid.removesuffix(".latest") for fid in f if fid.startswith("key.") and fid.endswith(".latest")]
     out += ["", "## Headline numbers", ""]
-    if f["key.available"].value != "yes":
+    if f["key.available"].value == "hidden":
+        out.append("Not shown: this dataset includes licensed data, so only quality results are published.")
+    elif f["key.available"].value != "yes":
         out.append("Not given: validation after cleaning failed, and numbers are only reported from validated data.")
     elif not keys:
         out.append("No headline columns configured (see `summary.key_columns`).")

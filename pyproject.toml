@@ -25,6 +25,9 @@ dev = ["pytest>=8.0"]
 [project.scripts]
 dqp = "dqp.cli:main"
 
+[tool.setuptools.package-data]
+dqp = ["report/*.css"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

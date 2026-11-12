@@ -151,9 +151,10 @@ def build_facts(con, config, log: dict, checks: dict, cleaning: dict, coverage: 
                        + (" ..." if x["internal_missing"] > 4 else ""), "text", "the missing dates")
 
     # --- headline numbers: only from data that passed validation
-    fp.add("key.available", "yes" if validated else "no", "text",
+    show = config.report.show_values
+    fp.add("key.available", ("yes" if validated else "no") if show else "hidden", "text",
            "whether headline numbers are given (only when validation after cleaning did not fail)")
-    if validated:
+    if validated and show:
         for table, cols in _key_columns(con, config, cleaning, stg_profiles).items():
             _key_numbers(con, fp, table, cols, stg_profiles[table])
     return fp

@@ -10,7 +10,8 @@
                  but numbers only enter as {{fact}} placeholders that the code
                  fills in, and a checker rejects any other number
   The run's validation result is the one AFTER cleaning: that is the data
-  that moves on to the summary and the report (layer 6, to come).
+  that moves on to the summary and the report.
+  6 report       report.html: verdict, summary, checks, cleaning, gaps, numbers
 
 Every run writes to outputs/<dataset>/:
   <dataset>.duckdb   raw_, typed_, stg_, rejected_, mart_ tables and the _dqp_ metadata
@@ -23,6 +24,7 @@ Every run writes to outputs/<dataset>/:
   facts.json         every number the summary may use, by ID
   summary.md         the summary (numbers rendered from facts.json)
   summary.json       how it was written: template or LLM, checker results, rejected drafts
+  report.html        the visual report: one self-contained file, opens offline
   run_log.json       what ran, on which inputs, with what result
 """
 
@@ -43,6 +45,7 @@ from dqp.config import load_config
 from dqp.connectors import load_source
 from dqp.profiling import ProfileSettings, build_highlights, profile_table
 from dqp.profiling.profiler import q
+from dqp.report import build_report
 from dqp.summary import build_facts, identifiers_of, make_client, write_summary
 from dqp.validation import Target, create_typed_view, run_validation, typed_name
 
@@ -165,6 +168,13 @@ def run(config_path: str | Path, llm_client=None) -> dict:
         _dump(out_dir / "facts.json", {"run_id": log["run_id"], "facts": facts.to_dict()})
         _dump(out_dir / "summary.json", {"run_id": log["run_id"], **summary})
         (out_dir / "summary.md").write_text(_summary_md(config.dataset, log, summary), encoding="utf-8")
+
+        # 6 report
+        with _Timer() as tm:
+            html = build_report(con, config, log, checks, cleaning, coverage, stg_profiles, facts, summary)
+            (out_dir / "report.html").write_text(html, encoding="utf-8")
+        log["steps"].append({"step": "report", "status": "done", "seconds": tm.seconds,
+                             "file": str(out_dir / "report.html"), "show_values": config.report.show_values})
         _dump(out_dir / "profile.json", {"run_id": log["run_id"], "dataset": config.dataset,
                                          "settings": config.profiling.model_dump(),
                                          "tables": raw_profiles, "staging": stg_profiles})

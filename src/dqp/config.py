@@ -268,6 +268,15 @@ class Mart(_Strict):
     sql: str = Field(description="SELECT over stg_<table> tables (and earlier marts).")
 
 
+class ReportConfig(_Strict):
+    """Layer 6: the HTML report (outputs/<dataset>/report.html)."""
+    show_values: bool = Field(
+        True, description="false: hide data values (headline numbers, charts, example and rejected row values) "
+                          "and show only quality results. Use for licensed data on a public site.")
+    max_coverage_columns: int = Field(30, ge=1, le=500, description="Columns drawn per table in the coverage chart.")
+    max_rejected_rows: int = Field(10, ge=0, le=200)
+
+
 class SummaryConfig(_Strict):
     """Layer 5: the plain-language summary.
 
@@ -296,6 +305,7 @@ class DatasetConfig(_Strict):
     marts: list[Mart] = Field(default_factory=list)
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     summary: SummaryConfig = Field(default_factory=SummaryConfig)
+    report: ReportConfig = Field(default_factory=ReportConfig)
     output_dir: Path | None = None
 
     @field_validator("marts")

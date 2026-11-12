@@ -3,7 +3,7 @@
 Give it any tabular dataset and it profiles, validates, cleans, documents and
 summarises it, with an AI summary layer that only works on validated, computed numbers.
 
-> **Status: work in progress.** Layers 1–5 (input, profiling, validation, cleaning, summary) are built.
+> **Status: work in progress.** Layers 1–5 and the HTML report are built; GitHub Actions and Pages are next.
 > The table below is kept honest: nothing is marked done before it runs and is tested.
 
 | Layer | What it does | Status |
@@ -14,9 +14,9 @@ summarises it, with an AI summary layer that only works on validated, computed n
 | 3. Validation | generic checks + rules from config, pass / warn / fail with failing rows | ✅ done |
 | 4. Cleaning | raw → staging → mart, every step logged with a reason, removed rows kept, gaps documented | ✅ done |
 | 5. AI summary | plain-language report; the LLM never types a number, a checker enforces it; template fallback | ✅ done (LLM path tested with fake clients, see below) |
-| 6. Output | HTML report, GitHub Actions, GitHub Pages | ⏳ planned |
+| 6. Output | HTML report ✅ · GitHub Actions and Pages ⏳ | 🟡 in progress |
 
-135 tests cover the five layers (`pytest`).
+141 tests cover the layers (`pytest`).
 
 ## Example: what profiling found in my thesis data
 
@@ -83,6 +83,23 @@ cleaning: 10 change(s), 2 row(s) moved to rejected_ tables
 - **A rule caught a mistake in my own mart.** The first REIT mart included 2026Q1,
   which held only January. The mart now keeps only complete quarters, which also
   removed 1971Q4 (Nareit starts in December 1971), and a rule guards it.
+
+## The report
+
+Every run writes `outputs/<dataset>/report.html`, one self-contained file (no server, no
+JavaScript library, charts drawn as inline SVG), in light and dark mode and readable on a phone:
+
+- **Verdict:** validation on arrival next to validation after cleaning
+- **Summary:** the plain-language summary, every number taken from `facts.json`
+- **Checks:** filter by "needs attention", stage or text; failing checks show example rows
+- **Cleaning:** each step with its reason and row counts, and the rejected rows as they were
+- **Gaps:** a coverage chart per table, with every missing value inside a series marked
+- **Headline numbers:** latest, lowest, highest and one-year change, with a chart
+- **Columns and lineage:** the profile of every cleaned column, and which file each table came from
+
+`report.show_values: false` turns it into a quality-only report (statuses, counts, row numbers,
+dates and reasons, no data values). The thesis config uses this because Artprice and Nareit
+data is licensed.
 
 ## Example: the summary
 
@@ -167,6 +184,7 @@ Everything lands in `outputs/<dataset>/`:
 | `facts.json` | every number the summary may use, by ID |
 | `summary.md` | the plain-language summary, numbers rendered from `facts.json` |
 | `summary.json` | template or LLM, model, checker results, rejected drafts and why |
+| `report.html` | the visual report: one self-contained file, opens offline in any browser |
 | `run_log.json` | what ran, on which inputs (file fingerprints), with what result |
 
 Design choices:
@@ -262,6 +280,8 @@ validation:
     # also: not_null, between, allowed, row_count
   generic:
     no_missing_periods: off                        # change or switch off a generic check
+report:
+  show_values: true              # false: quality results only, no data values (licensed data)
 summary:
   provider: auto                 # auto | anthropic | openai | none
   model: null                    # anthropic default claude-sonnet-5-5; required for openai

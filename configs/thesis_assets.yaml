@@ -201,3 +201,9 @@ summary:
   provider: auto          # Anthropic or OpenAI if an API key is set, else the template
   key_columns:
     master__sheet1: [art_global_index_eur, equity_us_oecd, reit_all_reits_tr_index, gold_spot_usd_oz, btc_usd]
+
+# ------------------------------------------------------------------ report
+# This repo is public and Artprice / Nareit data is licensed: the report shows
+# quality results (statuses, counts, row numbers, dates, reasons), no values.
+report:
+  show_values: false
