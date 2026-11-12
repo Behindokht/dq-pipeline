@@ -186,6 +186,11 @@ def profile_column(con, table: str, column: str, n_rows: int, s: ProfileSettings
         used = {k: c[f"fmt_{k}"] for k in DATE_FORMATS if c[f"fmt_{k}"]}
         out["date"] = _date_stats(con, table, column, v, slash_month_first, s)
         out["date"]["format"] = date_fmt
+        # timestamps with a real time of day must stay timestamps when typed: casting
+        # them to DATE would silently merge lines that differ only by their time
+        out["date"]["has_time"] = bool(con.execute(
+            f"SELECT COUNT(*) FROM {q(table)} WHERE regexp_full_match({v}, {lit(DATE_FORMATS['iso_datetime'])}) "
+            f"AND NOT regexp_matches({v}, '[ T]00:00(:00(\\.0+)?)?$')").fetchall()[0][0])
         out["date"]["slash_month_first"] = slash_month_first
         out["date"]["formats_used"] = used
         if "slash_date" in used and c["slash_day_first"] == 0 and c["slash_month_first"] == 0:

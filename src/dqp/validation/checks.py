@@ -261,9 +261,10 @@ def run_rule(con, rule: Rule, target: Target, prof: dict, max_examples: int) -> 
         r.name = r.name or f"{dc.column} coverage"
         dmin, dmax = con.execute(f"SELECT MIN({q(dc.column)}), MAX({q(dc.column)}) FROM {view}").fetchall()[0]
         problems = []
-        if dc.start and (dmin is None or str(dmin) > dc.start):
+        # compare calendar dates: a timestamp on the start day is on time
+        if dc.start and (dmin is None or str(dmin)[:10] > dc.start[:10]):
             problems.append(f"starts {dmin}, expected on or before {dc.start}")
-        if dc.end and (dmax is None or str(dmax) < dc.end):
+        if dc.end and (dmax is None or str(dmax)[:10] < dc.end[:10]):
             problems.append(f"ends {dmax}, expected on or after {dc.end}")
         missing = 0
         if dc.no_gaps:

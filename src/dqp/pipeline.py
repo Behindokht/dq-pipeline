@@ -244,7 +244,12 @@ def _profile_typed(con, table: str, settings: ProfileSettings) -> dict:
     view = f"_text_{table}"
     casts = ", ".join(f"CAST({q(c)} AS VARCHAR) AS {q(c)}" for c in cols)
     con.execute(f"CREATE OR REPLACE VIEW {q(view)} AS SELECT _row, {casts} FROM {q(table)}")
-    return profile_table(con, view, settings)
+    prof = profile_table(con, view, settings)
+    # a typed table already has real types: a VARCHAR column there is text by decision
+    # (an ID, a code, a label), not a number that failed to parse
+    types = {r[0]: r[1] for r in con.execute(f"DESCRIBE {q(table)}").fetchall()}
+    _force_text(prof, [c for c in cols if types[c] == "VARCHAR" and prof["columns_profile"][c]["inferred_type"] != "empty"])
+    return prof
 
 
 def _text_columns(config, raw_tables: list[str], profiles: dict) -> dict[str, list[str]]:

@@ -265,3 +265,20 @@ def test_text_columns_unknown_column_is_an_error(tmp_path):
     p.write_text(_y.safe_dump(cfg))
     with pytest.raises(ValueError, match="no column"):
         run(p)
+
+
+def test_text_column_in_a_mart_is_not_re_judged_as_a_number(tmp_path):
+    csv = "code,v\n" + "".join(f"{100000 + i},{i}\n" for i in range(40)) + "C100001,1\n"
+    log = run(setup(tmp_path, {"prices": []}, csv=csv,
+                    marts=[{"name": "m", "sql": "SELECT _row, CAST(code AS VARCHAR) AS code, v FROM stg_prices"}]))
+    flagged = [c for c in log["checks"].values()
+               if c["stage"] == "staging" and c["table"] == "mart_m" and "'code'" in c["name"]]
+    assert flagged == []
+
+
+def test_sql_comment_in_folded_yaml_is_a_clear_config_error(tmp_path):
+    p = setup(tmp_path, marts=[{"name": "m", "sql": "SELECT * FROM stg_prices -- note WHERE 1=1"}])
+    with pytest.raises(ValidationError, match="comment would swallow"):
+        load_config(p)
+    p = setup(tmp_path, marts=[{"name": "m", "sql": "SELECT *\nFROM stg_prices -- fine on its own line\n"}])
+    load_config(p)

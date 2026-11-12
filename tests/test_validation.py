@@ -231,3 +231,19 @@ def test_rule_on_unreadable_column_explains_why(tmp_path):
     (c,) = checks(log, "rule")
     assert c["status"] == "ERROR"
     assert "Hint: 'v' is text (2 non-empty value(s), none readable as a number or date)" in c["detail"]
+
+
+def test_unquoted_off_in_yaml_switches_a_check_off(tmp_path):
+    p = setup(tmp_path)
+    p.write_text(p.read_text().replace("generic: {}", "generic:\n    no_missing_periods: off"), encoding="utf-8")
+    assert "no_missing_periods: off" in p.read_text()
+    log = run(p)
+    assert not [c for c in log["checks"].values() if c["kind"] == "no_missing_periods"]
+
+
+def test_date_coverage_with_timestamps_compares_calendar_days(tmp_path):
+    csv = "t,v\n2024-01-01 07:45:00,1\n2024-01-02 09:00:00,2\n2024-01-03 18:30:00,3\n"
+    log = run(setup(tmp_path, [{"table": "pay", "date_coverage": {"column": "t", "start": "2024-01-01",
+                                                                   "end": "2024-01-03"}}], csv=csv))
+    (c,) = checks(log, "rule")
+    assert c["status"] == "PASS", c["detail"]

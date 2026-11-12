@@ -106,6 +106,15 @@ class ProfilingConfig(_Strict):
     max_examples: int = Field(3, ge=1, le=20)
 
 
+def _no_swallowing_comment(sql: str | None) -> str | None:
+    """`sql: >` in YAML folds the lines into one, so a `--` comment would swallow
+    everything after it. Catch that here instead of as an obscure SQL error."""
+    if sql and "--" in sql and "\n" not in sql.strip():
+        raise ValueError("this SQL is on one line (YAML `>` joins lines), so the `--` comment would swallow the "
+                         "rest of the query; move the comment to a YAML `#` comment, or use `sql: |`")
+    return sql
+
+
 Severity = Literal["fail", "warn", "info"]
 
 
@@ -185,6 +194,11 @@ class Rule(_Strict):
     def kind(self) -> str:
         return next(k for k in RULE_KINDS if getattr(self, k) is not None)
 
+    @field_validator("sql", "expr")
+    @classmethod
+    def _sql_comment(cls, v):
+        return _no_swallowing_comment(v)
+
 
 GENERIC_CHECKS = ("table_not_empty", "no_duplicate_rows", "values_fit_type", "no_empty_columns",
                   "no_duplicate_dates", "no_missing_periods")
@@ -194,6 +208,12 @@ class ValidationConfig(_Strict):
     rules: list[Rule] = Field(default_factory=list)
     generic: dict[str, Union[Severity, Literal["off"]]] = Field(
         default_factory=dict, description="Change the severity of a generic check, or switch it off.")
+
+    @field_validator("generic", mode="before")
+    @classmethod
+    def _yaml_off(cls, v):
+        # YAML 1.1 reads an unquoted `off` as false: accept it as "off"
+        return {k: ("off" if x is False else x) for k, x in v.items()} if isinstance(v, dict) else v
 
     @field_validator("generic")
     @classmethod
@@ -279,6 +299,11 @@ class Mart(_Strict):
     name: str = Field(pattern=NAME_PATTERN, description="Becomes the table mart_<name>.")
     description: str = ""
     sql: str = Field(description="SELECT over stg_<table> tables (and earlier marts).")
+
+    @field_validator("sql")
+    @classmethod
+    def _sql_comment(cls, v):
+        return _no_swallowing_comment(v)
 
 
 class ReportConfig(_Strict):

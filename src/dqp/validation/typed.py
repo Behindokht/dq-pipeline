@@ -33,6 +33,8 @@ def cast_expr(column: str, prof: dict) -> str:
         return _number_expr(v, decimal_comma=False)
     if kind == "numeric_decimal_comma":
         return _number_expr(v, decimal_comma=True)
+    if kind == "date" and prof.get("date", {}).get("has_time"):
+        return f"TRY_CAST({v} AS TIMESTAMP)"
     if kind == "date":
         return _date_expr(v, prof.get("date", {}).get("slash_month_first", False))
     if kind == "boolean":
