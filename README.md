@@ -7,7 +7,7 @@
 Give it any tabular dataset and it profiles, validates, cleans, documents and
 summarises it, with an AI summary layer that only works on validated, computed numbers.
 
-> **Status: work in progress.** All six layers run, automatically on every push via GitHub Actions. Next: more datasets (payments, CRM) and source types.
+> **Status: work in progress.** All six layers run on three datasets, automatically on every push via GitHub Actions. Next: Google Sheets as a source, and a CRM-style dataset.
 > The table below is kept honest: nothing is marked done before it runs and is tested.
 
 | Layer | What it does | Status |
@@ -20,7 +20,35 @@ summarises it, with an AI summary layer that only works on validated, computed n
 | 5. AI summary | plain-language report; the LLM never types a number, a checker enforces it; template fallback | ✅ done (LLM path tested with fake clients, see below) |
 | 6. Output | HTML report, GitHub Actions (tests on Python 3.10 and 3.12, pipeline run, Pages deploy) | ✅ done |
 
-145 tests cover the layers (`pytest`).
+153 tests cover the layers (`pytest`).
+
+## Example: one million real transactions
+
+[Online Retail II](https://archive.ics.uci.edu/dataset/502/online+retail+ii) (Chen, 2019, UCI Machine
+Learning Repository, CC BY 4.0, doi:10.24432/C5CG6D) is downloaded by the run itself, checked against its
+SHA-256 and cached. The run takes about 30 seconds. What it found and did:
+
+| Finding | Lines | What the pipeline does |
+|---|---|---|
+| 1–9 Dec 2010 appears in both yearly sheets | 22,523 | a rule on arrival proves both copies identical, then one is set aside |
+| exact duplicate lines (same minute, same everything) | 11,812 | set aside as double-recorded (an assumption, stated in the log) |
+| test-product lines | 17 | set aside |
+| cancellations (invoice `C…`) | 19,494 | kept, counted as refunds; one has a positive quantity (WARN) |
+| negative quantities outside cancellations | 3,457 | kept; a rule proves all are zero-price write-offs, not sales |
+| "adjust bad debt" lines with negative prices (invoice `A…`) | 6 | allowed explicitly by a rule |
+| product lines without a customer ID | 232,662 | WARN: cannot be used for customer-level analysis |
+| postage, fees, vouchers, discounts in the product column | thousands | classified as `line_type`, so sales are product sales only |
+
+Marts: every line once with its type and amount; daily and monthly product sales. Rules prove the
+monthly totals equal the daily totals and the daily totals equal the transactions. The monthly net
+sales were cross-checked against an independent pandas calculation from the Excel file: equal to
+within £0.01 over 24 months.
+
+Two lessons from this dataset, both now in the config with comments:
+- The first monthly mart included December 2011, which ends on the 9th, and the headline numbers
+  compared it with full months (refund rate "+1153%"). Only complete months go in now; a rule guards it.
+- Typing first turned `InvoiceDate` into a date, which merged lines that differ only by the minute.
+  Timestamps with a time of day now stay timestamps.
 
 ## Example: what profiling found in my thesis data
 
@@ -329,7 +357,7 @@ profiling:                       # optional, these are the defaults
 |---|---|---|
 | Copper and metals, monthly 1960 onwards (800 months) | CSV | loads, profiles, validates, cleans, summarises ✅ |
 | Thesis multi-asset data, 1998–2025 (6 files: master sheet, Artprice, Nareit, World Bank, FRED/OECD) | Excel .xlsx/.xls + CSV | loads, profiles, validates, cleans, summarises ✅ (data kept private: licensed sources) |
-| Public payments / transactions | Parquet or large CSV | ⏳ |
+| Online Retail II: 1,067,371 invoice lines of a UK online retailer, 2009–2011 (UCI, CC BY 4.0) | Excel, downloaded and checksum-verified at run time | loads, profiles, validates, cleans, summarises ✅ |
 | CRM / sales pipeline | Google Sheet | ⏳ |
 
 The copper file is the monthly series exported from
@@ -351,4 +379,6 @@ Found by testing on purpose, kept here so nothing is overclaimed:
 - **`snake_case`** drops symbols, so `Crude oil, WTI ($/bbl)` becomes `crude_oil_wti_bbl`;
   the original name stays in the lineage in `cleaning.json`.
 - **The live LLM APIs** have not been called from this repo yet (see the summary section).
+- **SQL in `sql: >` blocks** is folded onto one line by YAML, so a `--` comment would swallow the rest
+  of the query; the config rejects that with a message. Use `#` comments outside the SQL.
 

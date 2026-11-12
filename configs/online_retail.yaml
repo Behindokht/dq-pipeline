@@ -1,0 +1,186 @@
+dataset: online_retail
+description: >
+  Online Retail II: all 1,067,371 invoice lines of a UK online retailer, December 2009 to
+  December 2011, in two yearly Excel sheets. Real merchant transactions with real problems:
+  cancellations, refunds, fees, missing customer IDs and an overlap between the sheets.
+  Source: UCI Machine Learning Repository (Chen, 2019), CC BY 4.0, doi:10.24432/C5CG6D.
+
+sources:
+  - name: retail
+    type: excel
+    path: data/downloads/online_retail_II.xlsx
+    download:
+      url: https://archive.ics.uci.edu/static/public/502/online+retail+ii.zip
+      extract: online_retail_II.xlsx
+      sha256: 572e36277c2390fbfde10664750731e0a86f55e33470d91919085f0408e67bfb
+
+# IDs and codes are labels, not quantities: 489434 / C489449, 85123A, 13085
+text_columns:
+  retail__year_2009_2010: [Invoice, StockCode, Customer ID]
+  retail__year_2010_2011: [Invoice, StockCode, Customer ID]
+
+# ------------------------------------------------------------------ cleaning
+# Every step needs a reason; removed rows move to rejected_<table>.
+cleaning:
+  retail__year_2009_2010:
+    - rename: {StockCode: stock_code, InvoiceDate: invoice_date, "Customer ID": customer_id}
+    - snake_case: true
+    - trim_whitespace: true
+    - drop_rows:
+        where: "invoice_date >= TIMESTAMP '2010-12-01'"
+        reason: >
+          1-9 December 2010 is in both yearly sheets; these lines are identical to the ones in
+          the 2010-2011 sheet (checked by a rule on arrival), so one copy is kept there
+    - drop_duplicates:
+        reason: >
+          identical in every field including the minute: treated as a line recorded twice
+          (an assumption, documented here; the copies stay in rejected_)
+    - drop_rows:
+        where: "stock_code LIKE 'TEST%'"
+        reason: "test product lines (description 'This is a test product.'), not transactions"
+  retail__year_2010_2011:
+    - rename: {StockCode: stock_code, InvoiceDate: invoice_date, "Customer ID": customer_id}
+    - snake_case: true
+    - trim_whitespace: true
+    - drop_duplicates:
+        reason: >
+          identical in every field including the minute: treated as a line recorded twice
+          (an assumption, documented here; the copies stay in rejected_)
+    - drop_rows:
+        where: "stock_code LIKE 'TEST%'"
+        reason: "test product lines (description 'This is a test product.'), not transactions"
+
+# ------------------------------------------------------------------ marts
+marts:
+  - name: transactions
+    description: All invoice lines of both years, once, with a line type and the line amount in GBP
+    sql: >
+      SELECT invoice, stock_code, description, quantity, invoice_date, price, customer_id, country,
+             invoice LIKE 'C%' AS is_cancellation,
+             quantity * price AS amount,
+             CASE WHEN regexp_full_match(stock_code, '[0-9]{5}[A-Za-z]{0,2}') OR stock_code LIKE 'DCGS%'
+                       OR stock_code = 'PADS' THEN 'product'
+                  WHEN stock_code IN ('POST', 'DOT', 'C2') THEN 'shipping'
+                  WHEN stock_code IN ('BANK CHARGES', 'AMAZONFEE', 'CRUK') THEN 'fee'
+                  WHEN stock_code LIKE 'gift%' THEN 'voucher'
+                  ELSE 'adjustment' END AS line_type
+      FROM (SELECT * FROM stg_retail__year_2009_2010 UNION ALL SELECT * FROM stg_retail__year_2010_2011)
+  - name: daily_sales
+    description: Product sales per trading day; cancellations counted as refunds
+    sql: >
+      SELECT CAST(invoice_date AS DATE) AS day,
+             COUNT(DISTINCT invoice) FILTER (WHERE NOT is_cancellation) AS invoices,
+             COUNT(DISTINCT customer_id) FILTER (WHERE NOT is_cancellation) AS customers,
+             round(SUM(amount) FILTER (WHERE line_type = 'product' AND NOT is_cancellation AND quantity > 0), 2) AS gross_sales,
+             round(COALESCE(-SUM(amount) FILTER (WHERE line_type = 'product' AND is_cancellation), 0), 2) AS refunds,
+             round(COALESCE(SUM(amount) FILTER (WHERE line_type = 'product' AND NOT is_cancellation AND quantity > 0), 0)
+                   + COALESCE(SUM(amount) FILTER (WHERE line_type = 'product' AND is_cancellation), 0), 2) AS net_sales
+      FROM mart_transactions GROUP BY 1 ORDER BY 1
+  # First run: the headline numbers compared December 2011 (data ends on the 9th) with
+  # full months (net sales -41.9%, refund rate +1153%). Only complete months go in: the month in
+  # which the data stops is left out (unless it stops on that month's last day). Months that end
+  # early because the shop closes over Christmas are complete.
+  # (No SQL comments inside `sql: >`: YAML joins the lines, so `--` would swallow the rest.)
+  - name: monthly_sales
+    description: Product sales per complete calendar month (December 2011 ends on the 9th, so it is left out)
+    sql: >
+      SELECT date_trunc('month', day)::DATE AS month, SUM(invoices) AS invoices, round(SUM(gross_sales), 2) AS gross_sales,
+             round(COALESCE(SUM(refunds), 0), 2) AS refunds, round(SUM(net_sales), 2) AS net_sales,
+             round(100 * COALESCE(SUM(refunds), 0) / SUM(gross_sales), 2) AS refund_rate_pct
+      FROM mart_daily_sales
+      WHERE day < (SELECT CASE WHEN max(day) = last_day(max(day)) THEN max(day) + 1
+                               ELSE date_trunc('month', max(day)) END FROM mart_daily_sales)
+      GROUP BY 1 ORDER BY 1
+
+# ------------------------------------------------------------------ validation
+validation:
+  generic:
+    no_duplicate_dates: off     # transaction tables have many lines per day by nature
+    no_missing_periods: info    # the shop does not trade on Saturdays and over Christmas
+  rules:
+    # --- on arrival: the overlap between the yearly sheets must be identical before one copy is dropped
+    - table: retail__year_2009_2010
+      stage: raw
+      name: the 1-9 Dec 2010 overlap is identical in both sheets
+      sql: >
+        SELECT * FROM (
+          SELECT * EXCLUDE _row FROM typed_retail__year_2009_2010 WHERE "InvoiceDate" >= TIMESTAMP '2010-12-01'
+          EXCEPT ALL
+          SELECT * EXCLUDE _row FROM typed_retail__year_2010_2011 WHERE "InvoiceDate" < TIMESTAMP '2010-12-10')
+        UNION ALL SELECT * FROM (
+          SELECT * EXCLUDE _row FROM typed_retail__year_2010_2011 WHERE "InvoiceDate" < TIMESTAMP '2010-12-10'
+          EXCEPT ALL
+          SELECT * EXCLUDE _row FROM typed_retail__year_2009_2010 WHERE "InvoiceDate" >= TIMESTAMP '2010-12-01')
+
+    # --- invoices and their sign
+    - table: transactions
+      name: invoice numbers are six digits, optionally prefixed C (cancellation) or A (adjustment)
+      expr: "regexp_full_match(invoice, '[CA]?[0-9]{6}')"
+    - table: transactions
+      name: cancellation lines have a negative quantity
+      expr: "NOT is_cancellation OR quantity < 0"
+      severity: warn
+    - table: transactions
+      name: negative quantities outside cancellations are zero-price write-offs only
+      expr: "is_cancellation OR quantity >= 0 OR price = 0"
+    - table: transactions
+      name: prices are not negative, except bad-debt adjustments (invoice A...)
+      expr: "price >= 0 OR invoice LIKE 'A%'"
+    - table: transactions
+      name: one customer per invoice
+      sql: >
+        SELECT invoice, COUNT(DISTINCT customer_id) AS customers FROM {table}
+        GROUP BY invoice HAVING COUNT(DISTINCT customer_id) > 1
+    - table: transactions
+      name: one timestamp per invoice
+      severity: info
+      sql: >
+        SELECT invoice, COUNT(DISTINCT invoice_date) AS timestamps FROM {table}
+        GROUP BY invoice HAVING COUNT(DISTINCT invoice_date) > 1
+    - table: transactions
+      name: product sales lines can be linked to a customer
+      severity: warn
+      description: lines without a customer ID cannot be used for customer-level analysis
+      expr: "customer_id IS NOT NULL OR line_type <> 'product' OR is_cancellation"
+    - table: transactions
+      name: covers 1 Dec 2009 to 9 Dec 2011
+      date_coverage: {column: invoice_date, start: "2009-12-01", end: "2011-12-09"}
+    - table: transactions
+      name: no line appears twice after cleaning
+      sql: >
+        SELECT invoice, stock_code, invoice_date, quantity, price, COUNT(*) AS n FROM {table}
+        GROUP BY ALL HAVING COUNT(*) > 1 AND COUNT(DISTINCT description) = 1 AND COUNT(DISTINCT customer_id) <= 1
+        AND COUNT(DISTINCT country) = 1
+
+    # --- the marts add up
+    - table: daily_sales
+      name: daily net sales add up to the product lines in transactions
+      sql: >
+        SELECT d.total, t.total FROM (SELECT round(SUM(net_sales), 2) AS total FROM mart_daily_sales) d,
+          (SELECT round(SUM(amount), 2) AS total FROM mart_transactions WHERE line_type = 'product'
+             AND (is_cancellation OR quantity > 0)) t
+        WHERE abs(d.total - t.total) > 0.5
+    - table: monthly_sales
+      name: monthly totals add up to the daily totals of the same months
+      sql: >
+        SELECT m.t, d.t FROM (SELECT round(SUM(net_sales), 2) AS t FROM mart_monthly_sales) m,
+          (SELECT round(SUM(net_sales), 2) AS t FROM mart_daily_sales
+           WHERE day < (SELECT max(month) + INTERVAL 1 MONTH FROM mart_monthly_sales)) d
+        WHERE abs(m.t - d.t) > 0.5
+    - table: monthly_sales
+      name: one row per complete month, Dec 2009 to Nov 2011, no gaps
+      date_coverage: {column: month, start: "2009-12-01", end: "2011-11-01", no_gaps: true}
+    - table: monthly_sales
+      name: no partial month (the data ends on 9 Dec 2011)
+      expr: "month < DATE '2011-12-01'"
+    - table: monthly_sales
+      name: refund rate between 0 and 100 %
+      between: {column: refund_rate_pct, min: 0, max: 100}
+
+# ------------------------------------------------------------------ summary and report
+summary:
+  provider: auto
+  key_columns:
+    monthly_sales: [net_sales, invoices, refund_rate_pct]
+report:
+  show_values: true            # CC BY 4.0: the data may be published, with attribution

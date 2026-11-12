@@ -1,10 +1,10 @@
 {
-  "run_id": "bbf0ac4986c5",
+  "run_id": "5a2db0b56dfc",
   "dataset": "thesis_assets",
   "config_sha256": "dc5bc523120f",
   "dqp_version": "0.1.0",
-  "started_at": "2026-11-12T14:55:29+00:00",
-  "finished_at": "2026-11-12T14:55:46+00:00",
+  "started_at": "2026-11-12T15:39:52+00:00",
+  "finished_at": "2026-11-12T15:40:09+00:00",
   "status": "success",
   "validation": {
     "status": "passed",

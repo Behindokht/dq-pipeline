@@ -1,6 +1,7 @@
 # Runs on every push and pull request, every Monday, and on demand:
 #   1. tests      the full pytest suite, on Python 3.10 and 3.12
-#   2. run        the pipeline on the public datasets (--strict: a FAIL stops the build),
+#   2. run        the pipeline on the public datasets (--strict: a FAIL stops the build);
+#                 Online Retail II is downloaded from UCI (checksum-verified, then cached),
 #                 then builds the site from the run's own output files
 #   3. deploy     publishes the site to GitHub Pages (main branch only)
 #
@@ -54,14 +55,19 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - run: pip install -e .
+      - name: Cache downloaded source files
+        uses: actions/cache@v4
+        with:
+          path: data/downloads
+          key: downloads-${{ hashFiles('configs/*.yaml') }}
       - name: Run the pipeline on the public datasets
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: dqp run --strict configs/copper.yaml
+        run: dqp run --strict configs/copper.yaml configs/online_retail.yaml
       - name: Build the site
         # snapshots/ holds quality-only reports of local runs whose data is licensed
-        run: dqp site --out site --repo-url "${{ github.server_url }}/${{ github.repository }}" outputs/copper snapshots/thesis_assets
+        run: dqp site --out site --repo-url "${{ github.server_url }}/${{ github.repository }}" outputs/copper outputs/online_retail snapshots/thesis_assets
       - name: Keep the run's output files
         uses: actions/upload-artifact@v4
         with:
