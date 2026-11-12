@@ -19,7 +19,7 @@ from html import escape
 from importlib import resources
 from pathlib import Path
 
-from dqp.report.html import FONTS, pill
+from dqp.report.html import FONTS, grid_sections, pill
 
 STEPS = [
     ("Load", "CSV and Excel into DuckDB, every value kept as it arrived"),
@@ -31,18 +31,17 @@ STEPS = [
 ]
 
 EXTRA_CSS = """
-.lead { font-size: 1.05rem; max-width: 62ch; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 18px; display: grid;
-  gap: 10px; align-content: start; min-width: 0; }
-.card h3 { font-family: var(--font-mono); font-size: 1rem; }
-.card .route { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.card .open { font-weight: 600; text-decoration: none; }
-.card .open:hover { text-decoration: underline; }
-.card dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0; font-size: 0.82rem; }
-.card dt { color: var(--muted); } .card dd { margin: 0; font-variant-numeric: tabular-nums; }
-.how { margin: 0; padding-left: 1.6em; display: grid; gap: 6px; max-width: 70ch; }
-.how li::marker { font-family: var(--font-mono); color: var(--muted); }
+.lead { font-size: 1.15rem; line-height: 1.5; max-width: 52ch; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); column-gap: 32px; row-gap: 40px; }
+.card { display: grid; gap: 12px; align-content: start; min-width: 0; border-top: 1px solid var(--rule); padding-top: 12px; }
+.card h3 { font: 700 1.6rem/1.05 var(--font-head); letter-spacing: -0.02em; }
+.card .route { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 0.82rem; }
+.card .open { font-weight: 600; }
+.card dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0; font-size: 0.8rem; }
+.card dt { color: var(--muted); }
+.card dd { margin: 0; font-variant-numeric: tabular-nums; }
+.how { margin: 0; padding-left: 1.6em; display: grid; gap: 8px; max-width: 68ch; }
+.how li::marker { color: var(--muted); font-variant-numeric: tabular-nums; }
 .how b { font-weight: 600; }
 """
 
@@ -101,6 +100,10 @@ def build_site(out: str | Path, run_dirs: list[str | Path], repo_url: str | None
     css = resources.files("dqp.report").joinpath("style.css").read_text(encoding="utf-8") + EXTRA_CSS
     repo = (f'<a href="{_e(repo_url)}">Code and README on GitHub</a>' if repo_url else "")
     how = "".join(f"<li><b>{_e(a)}</b>: {_e(b)}</li>" for a, b in STEPS)
+    sections = (f'<section><div class="section-head"><h2>Datasets</h2><span class="muted small">{len(cards)} '
+                f'report(s)</span></div><div class="cards">{"".join(cards)}</div></section>'
+                f'<section><div class="section-head"><h2>What every run does</h2></div>'
+                f'<ol class="how">{how}</ol></section>')
     html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -122,14 +125,7 @@ def build_site(out: str | Path, run_dirs: list[str | Path], repo_url: str | None
     Each report below was produced by the latest automatic run of the pipeline.</p>
   <div class="meta">{repo}</div>
 </header>
-<section>
-  <div class="section-head"><h2>Datasets</h2><span class="muted small">{len(cards)} report(s)</span></div>
-  <div class="cards">{''.join(cards)}</div>
-</section>
-<section>
-  <div class="section-head"><h2>What every run does</h2></div>
-  <ol class="how">{how}</ol>
-</section>
+{grid_sections(sections)}
 <footer><span>Built by GitHub Actions from the pipeline's own output files.</span></footer>
 </main>
 </body>

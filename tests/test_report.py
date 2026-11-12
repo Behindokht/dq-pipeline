@@ -59,7 +59,7 @@ def test_report_is_one_complete_file_with_every_section(tmp_path):
 
 def test_report_shows_the_story(tmp_path):
     html = report(tmp_path)
-    assert "On arrival (raw data)" in html and "After cleaning (the result that counts)" in html
+    assert "On arrival</span>" in html and "After cleaning</span>" in html and "Failed" not in html
     assert "Reason: footer line" in html                        # cleaning step with its reason
     assert "Rejected rows (1)" in html                          # the footer row is kept, and shown
     assert "2024-04" in html                                    # the missing month is documented
