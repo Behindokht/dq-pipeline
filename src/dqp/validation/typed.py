@@ -29,10 +29,9 @@ def cast_expr(column: str, prof: dict) -> str:
     if kind == "mixed":
         kind = prof.get("mixed_dominant_type", "text")
     v = f"trim({q(column)})"
-    if kind == "numeric":
-        return _number_expr(v, decimal_comma=False)
-    if kind == "numeric_decimal_comma":
-        return _number_expr(v, decimal_comma=True)
+    if kind in ("numeric", "numeric_decimal_comma"):
+        x = _number_expr(v, decimal_comma=kind == "numeric_decimal_comma")
+        return f"CAST({x} AS BIGINT)" if (prof.get("numeric") or {}).get("integers") else x
     if kind == "date" and prof.get("date", {}).get("has_time"):
         return f"TRY_CAST({v} AS TIMESTAMP)"
     if kind == "date":

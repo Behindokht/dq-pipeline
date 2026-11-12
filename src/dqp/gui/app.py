@@ -110,7 +110,7 @@ def chosen(s: Suggestion) -> bool:
 def current_suggestions(an: Analysis) -> tuple[list[Suggestion], dict]:
     """Suggestions with column names that follow the renaming steps the person kept."""
     skip = {(s.table, next(iter(s.config))) for s in an.suggestions
-            if s.section == "cleaning" and next(iter(s.config)) in ("rename", "snake_case") and not chosen(s)}
+            if s.section == "cleaning" and not chosen(s)}
     return suggest(an.profiles, skip)
 
 
@@ -165,10 +165,10 @@ def header() -> None:
                 f'<ol class="dqp-steps">{cells}</ol></div>', unsafe_allow_html=True)
 
 
-def nav(next_ok: bool = True, next_label: str = "Next", why: str = "") -> None:
+def nav(next_ok: bool = True, next_label: str = "Next", why: str = "", back: bool = True) -> None:
     st.markdown('<div class="dqp-rule"></div>', unsafe_allow_html=True)
     left, mid, _, right = st.columns([1, 1, 2, 1])
-    if ss.step > 0 and left.button("Back", key=f"back{ss.step}", width="stretch"):
+    if back and ss.step > 0 and left.button("Back", key=f"back{ss.step}", width="stretch"):
         ss.step -= 1
         st.rerun()
     if ss.step > 0 and mid.button("Start over", key="restart", type="tertiary"):
@@ -187,9 +187,12 @@ def nav(next_ok: bool = True, next_label: str = "Next", why: str = "") -> None:
 def step_data() -> None:
     st.markdown("## Your data")
     st.markdown("A CSV or Excel file, or a Google Sheet. Everything runs on this computer.")
-    how = st.radio("Where is the data?", ["Upload a file", "Google Sheets link", "Try the example"],
+    how = st.radio("Where is the data?", ["Upload a file", "Google Sheets link", "Try the example",
+                                          "Saved settings"],
                    horizontal=True, key="how", label_visibility="collapsed")
     src = None
+    if how == "Saved settings":
+        return saved_settings()
     if how == "Upload a file":
         f = st.file_uploader("CSV or Excel file", type=["csv", "txt", "tsv", "xlsx", "xlsm", "xls"], key="upload")
         if f is not None:
@@ -224,6 +227,58 @@ def step_data() -> None:
         ss.update(keep)
         ss.an, ss.step = an, 1
         st.rerun()
+
+
+def saved_settings() -> None:
+    """Run the same checks again on new data, with a settings file downloaded earlier."""
+    st.markdown("The settings file you downloaded after an earlier run, and this month's data file. "
+                "The same cleaning and rules are applied; nothing is suggested or changed.")
+    f = st.file_uploader("Settings (YAML)", type=["yaml", "yml"], key="saved_yaml")
+    if f is None:
+        return
+    try:
+        cfg = yaml.safe_load(f.getvalue().decode("utf-8"))
+        DatasetConfig.model_validate({**cfg, "output_dir": "x"})
+    except (yaml.YAMLError, ValidationError, AttributeError, TypeError) as exc:
+        st.error(f"This is not a settings file dqp can use: {exc}")
+        return
+    files = [s for s in cfg["sources"] if s["type"] in ("csv", "excel") and not s.get("download")]
+    data = {}
+    if files:
+        names = ", ".join(Path(s["path"]).name for s in files)
+        ups = st.file_uploader(f"Data file(s): {names}", type=["csv", "txt", "tsv", "xlsx", "xlsm", "xls"],
+                               accept_multiple_files=True, key="saved_data")
+        for u in ups or []:
+            target = work_dir() / "input" / Path(u.name).name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(u.getvalue())
+            data[target.name] = target
+        if len(files) == 1 and len(data) == 1:          # one source: the file name may differ (new month)
+            data = {Path(files[0]["path"]).name: next(iter(data.values()))}
+    missing = [Path(s["path"]).name for s in files if Path(s["path"]).name not in data]
+    if st.button("Run with these settings", type="primary", disabled=bool(missing), key="saved_run"):
+        for s in cfg["sources"]:
+            if s in files:
+                s["path"] = str(data[Path(s["path"]).name])
+            elif s["type"] in ("csv", "excel"):              # downloaded by the pipeline itself
+                s["path"] = str(work_dir() / "downloads" / Path(s["path"]).name)
+            elif s["type"] == "gsheet":
+                s["cache_dir"] = str(work_dir() / "downloads")
+        cfg["output_dir"] = str(work_dir() / "outputs" / cfg["dataset"])
+        path = work_dir() / f"{cfg['dataset']}.yaml"
+        path.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        with st.spinner("Profiling, cleaning and checking…"):
+            log = run(path)
+        src = cfg["sources"][0]
+        label = "the Google Sheet" if src["type"] == "gsheet" else Path(src["path"]).name
+        an = Analysis(cfg["dataset"], src, Path(src.get("path", "")), label, [], {})
+        keep = {k: ss[k] for k in ("how",) if k in ss}
+        reset()
+        ss.update(keep)
+        ss.an, ss.saved, ss.result, ss.result_cfg, ss.step = an, f.name, log, cfg, 4
+        st.rerun()
+    if missing:
+        st.caption("Waiting for: " + ", ".join(missing))
 
 
 # ------------------------------------------------------------------ 2 layout
@@ -413,6 +468,12 @@ def step_rules(an: Analysis) -> None:
 
 def step_results(an: Analysis) -> None:
     st.markdown("## Run and results")
+    if ss.get("saved"):
+        st.markdown(f"<div class='dqp-note'>settings: {e(ss.saved)} · data: {e(an.label)} · "
+                    "same cleaning and rules as before</div>", unsafe_allow_html=True)
+        show_result(an, ss.result, ss.result_cfg)
+        nav(next_label="", back=False)
+        return
     acc, missing = accepted(an)
     if missing:
         st.error("Go back to Cleaning: a reason is missing for " + "; ".join(missing))
@@ -479,6 +540,7 @@ def show_result(an: Analysis, log: dict, cfg: dict) -> None:
                        flags=re.M))
 
     run_dir = Path(cfg["output_dir"])
+    show_tables(run_dir / f"{log['dataset']}.duckdb")
     report = (run_dir / "report.html").read_text(encoding="utf-8")
     st.markdown("### Download")
     failed = v["status"] == "failed"
@@ -504,6 +566,32 @@ def show_result(an: Analysis, log: dict, cfg: dict) -> None:
         st.iframe(run_dir / "report.html", height=900)
     else:
         components.html(report, height=900, scrolling=True)
+
+
+def show_tables(db: Path, rows: int = 200) -> None:
+    """The cleaned tables and the rows that were set aside, with the step and reason."""
+    con = duckdb.connect(str(db), read_only=True)
+    try:
+        names = [r[0] for r in con.execute("SELECT table_name FROM information_schema.tables "
+                                           "WHERE table_schema = 'main' ORDER BY table_name").fetchall()]
+        clean = [n for n in names if n.startswith(("stg_", "mart_"))]
+        rejected = [n for n in names if n.startswith("rejected_")
+                    and con.execute(f'SELECT COUNT(*) FROM "{n}"').fetchall()[0][0]]
+        st.markdown("### The data")
+        tabs = st.tabs([f"clean · {n.removeprefix('stg_')}" for n in clean]
+                       + [f"set aside · {n.removeprefix('rejected_')}" for n in rejected])
+        for tab, n in zip(tabs, clean + rejected):
+            df = con.execute(f'SELECT * FROM "{n}" LIMIT {rows}').df()
+            total = con.execute(f'SELECT COUNT(*) FROM "{n}"').fetchall()[0][0]
+            with tab:
+                if n.startswith("stg_") and "_row" in df:
+                    df = df.drop(columns="_row")
+                st.dataframe(df, hide_index=True, width="stretch")
+                st.caption(f"{total:,} row(s)" + (f", first {rows} shown" if total > rows else "")
+                           + (". Kept with the step and reason that set them aside; download them with "
+                              "“Include the rows set aside”." if n.startswith("rejected_") else ""))
+    finally:
+        con.close()
 
 
 def export_bytes(run_dir: Path, fmt: str, rejected: bool, anyway: bool, dataset: str) -> tuple[bytes, str, str]:

@@ -57,8 +57,8 @@ def test_example_from_start_to_result():
     log = at.session_state.result
     assert log["status"] == "success"
     assert log["cleaning"]["stg_shop_orders"] == {"rows_raw": 86, "rows_staging": 83, "rows_rejected": 3}
-    assert log["validation"]["status"] == "passed_with_warnings"          # Sundays: the shop is closed
-    assert any("Passed with warnings" in m.value for m in at.markdown)
+    assert log["validation"]["status"] == "passed"                         # Sundays: closed, not gaps
+    assert any(">Passed<" in m.value for m in at.markdown)
     reasons = {e["reason"] for e in log["cleaning_log"] if e["action"] in ("drop_rows", "drop_duplicates")}
     assert reasons == {"the till adds an export note and double scans"}   # the person's words, in the log
 
@@ -157,3 +157,35 @@ def test_a_sheet_link_and_a_header_fix(monkeypatch):
     assert not at.exception
     assert at.session_state.an.source["sheets"][1] == {"sheet": "Owners", "header_rows": 0}
     assert "Pipeline export" in at.session_state.an.profiles["raw_crm__owners"]["columns_profile"]
+
+
+def test_saved_settings_run_again_on_new_data():
+    at = analyse_example(start())
+    at.button(key="next1").click().run()
+    fill_reasons(at)
+    for k in ("next2", "next3", "run"):
+        at.button(key=k).click().run()
+    first, settings = at.session_state.result, portable(at.session_state.result_cfg, at.session_state.an)
+
+    at = start()                                          # later: a new session, a new month's file
+    at.radio(key="how").set_value("Saved settings").run()
+    at.file_uploader(key="saved_yaml").set_value(("shop_orders.yaml", settings.encode(), "text/yaml")).run()
+    assert at.button(key="saved_run").disabled                         # the data file is still missing
+    data = (APP.parent / "examples" / "shop_orders.csv").read_bytes()
+    at.file_uploader(key="saved_data").set_value([("shop_orders_march.csv", data, "text/csv")]).run()
+    at.button(key="saved_run").click().run()
+    assert not at.exception and at.session_state.step == 4
+    log = at.session_state.result
+    assert log["cleaning"] == first["cleaning"] and log["validation"]["summary"] == first["validation"]["summary"]
+    assert [t.label for t in at.tabs] == ["clean · shop_orders", "set aside · shop_orders"]
+
+
+def test_an_uploaded_workbook():
+    from test_gsheet import workbook_bytes
+
+    at = start()
+    at.file_uploader(key="upload").set_value(
+        ("pipeline.xlsx", workbook_bytes(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).run()
+    at.button(key="analyse").click().run()
+    an = at.session_state.an
+    assert an.source["type"] == "excel" and set(an.profiles) == {"raw_pipeline__deals", "raw_pipeline__owners"}

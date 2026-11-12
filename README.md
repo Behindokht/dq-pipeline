@@ -22,7 +22,7 @@ summarises it, with an AI summary layer that only works on validated, computed n
 | 6. Output | HTML report, GitHub Actions (tests on Python 3.10 and 3.12, pipeline run, Pages deploy) | ✅ done |
 | GUI | step-by-step browser interface over the same pipeline (`dqp gui`) | ✅ done |
 
-182 tests cover the layers and the GUI (`pytest`).
+187 tests cover the layers and the GUI (`pytest`).
 
 ## Example: one million real transactions
 
@@ -130,7 +130,8 @@ not uploaded anywhere (a Google Sheet is downloaded from Google, nothing more).
 
 1. **Data**: upload a CSV or Excel file, paste a Google Sheets link, or try the example (four weeks
    of orders from a small shop, with a note under the data, double scans, IDs that look like numbers
-   and stray spaces).
+   and stray spaces). Or **saved settings**: the YAML from an earlier run plus this month's file, and
+   the same cleaning and rules run again straight to the results.
 2. **Layout**: what was detected (delimiter, header rows, sheets), a preview of every table and what
    stands out. If the header was guessed wrong, change it and read again.
 3. **Cleaning**: the suggested steps as tick boxes. A step that sets rows aside needs a reason in
@@ -138,7 +139,8 @@ not uploaded anywhere (a Google Sheet is downloaded from Google, nothing more).
    rows go to a `rejected_` table.
 4. **Rules**: suggested rules to keep or untick, and a builder (column + never empty / unique /
    between / one of / SQL condition, as a failure or only a warning).
-5. **Results**: the verdict, checks before and after cleaning, what needs a look, the summary and
+5. **Results**: the verdict, checks before and after cleaning, what needs a look, the summary, the
+   cleaned tables and the rows set aside (with the step and reason that set each one aside), and
    the full report. Download the cleaned data (Excel or CSV), the report, and the settings as a
    YAML file: `dqp run` on that file gives the same result, so the checks can run on a schedule.
 
@@ -441,6 +443,9 @@ Found by testing on purpose, kept here so nothing is overclaimed:
   they would need a Google login (OAuth or a service account) stored somewhere.
 - **`dqp init`** recognises numeric tables (header above rows of numbers and dates) and text tables
   (rows of short labels at a similar width). A sheet of long sentences is treated as notes.
+- **Closed days:** in daily data, a weekday with no row at all in three or more weeks (a shop shut on
+  Sundays) is counted as a closed day, not a gap; the check says so in its result line. A series
+  that really is missing every Sunday is therefore reported as closed on Sundays, not as having gaps.
 - **Frequency detection** uses the median gap between dates. A series with very large gaps
   (fewer rows than missing periods) is reported as `irregular` and its gaps are not listed.
 - **Outliers** use the IQR rule on levels, so a price that trends upward is flagged as an

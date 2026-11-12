@@ -211,10 +211,13 @@ def _numeric_stats(con, table, column, v, decimal_comma, s) -> dict:
     r = con.execute(f"""
         SELECT COUNT(*), MIN(x), MAX(x), AVG(x), STDDEV_SAMP(x),
                quantile_cont(x, [0.01, 0.25, 0.5, 0.75, 0.99]),
-               COUNT(*) FILTER (WHERE x = 0), COUNT(*) FILTER (WHERE x < 0)
+               COUNT(*) FILTER (WHERE x = 0), COUNT(*) FILTER (WHERE x < 0),
+               COUNT(*) FILTER (WHERE x <> trunc(x))
         FROM {src}""").fetchall()[0]
-    n, mn, mx, mean, std, qs, zeros, negatives = r
+    n, mn, mx, mean, std, qs, zeros, negatives, fractions = r
     stats = {"count": n, "min": mn, "max": mx, "mean": mean, "std": std,
+             # whole numbers only (and small enough to be exact): typed as integers, so 3 is not 3.0
+             "integers": bool(n) and not fractions and max(abs(mn), abs(mx)) < 1e15,
              "p01": None, "p25": None, "median": None, "p75": None, "p99": None,
              "zeros": zeros, "negatives": negatives, "outliers": 0, "outlier_examples": []}
     if not n:
@@ -236,6 +239,14 @@ FREQUENCIES = [  # (name, median gap range in days)
     ("daily", 0.5, 1.5), ("weekly", 6, 8), ("monthly", 27, 32),
     ("quarterly", 85, 95), ("annual", 360, 370),
 ]
+
+
+DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def open_days(start, end, weekmask: str) -> pd.DatetimeIndex:
+    """The days from start to end (both included) that fall on the weekmask's days."""
+    return pd.bdate_range(start, end, freq="C", weekmask=weekmask)
 
 
 def _period_index(d: pd.Series, freq: str) -> pd.Series:
@@ -273,23 +284,36 @@ def _date_stats(con, table, column, v, slash_month_first, s) -> dict:
 
     median_gap = dates.diff().dt.days.median()
     freq = next((name for name, lo, hi in FREQUENCIES if lo <= median_gap <= hi), "irregular")
+    weekmask = None
     if freq == "daily" and not (dates.dt.day_of_week >= 5).any():
-        freq = "business_daily"
+        freq, weekmask = "business_daily", "Mon Tue Wed Thu Fri"
+    elif freq == "daily":
+        # a weekday with no row in three or more weeks is a closed day (a shop shut on Sundays),
+        # not a gap; documented in the note so it is never hidden
+        chances = pd.date_range(dates.iloc[0], dates.iloc[-1]).day_of_week.value_counts()
+        seen = set(dates.dt.day_of_week)
+        closed = [d for d in range(7) if d not in seen and chances.get(d, 0) >= 3]
+        if closed:
+            weekmask = " ".join(DAYS[d] for d in range(7) if d not in closed)
+            out["closed_days"] = [DAYS[d] for d in closed]
     out["frequency"] = freq
     out["median_gap_days"] = float(median_gap)
     if freq == "irregular":
         return out
 
-    if freq == "business_daily":
-        expected = int(len(pd.bdate_range(dates.iloc[0], dates.iloc[-1])))
-        steps = pd.Series([len(pd.bdate_range(a, b)) - 1 for a, b in zip(dates[:-1], dates[1:])])
-        out["note"] = "public holidays count as missing business days"
+    if weekmask:
+        out["weekmask"] = weekmask
+        expected = len(open_days(dates.iloc[0], dates.iloc[-1], weekmask))
+        steps = pd.Series([len(open_days(a, b, weekmask)) - 1 for a, b in zip(dates[:-1], dates[1:])])
+        out["note"] = ("public holidays count as missing business days" if freq == "business_daily" else
+                       f"no rows on any {' or '.join(out['closed_days'])} between {out['min']} and {out['max']}: "
+                       "counted as closed days, not as gaps")
     else:
         idx = _period_index(dates, freq).drop_duplicates().reset_index(drop=True)
         expected = int(idx.iloc[-1] - idx.iloc[0] + 1)
         steps = idx.diff().iloc[1:].reset_index(drop=True)
 
-    distinct_periods = len(dates) if freq == "business_daily" else len(_period_index(dates, freq).unique())
+    distinct_periods = len(dates) if weekmask else len(_period_index(dates, freq).unique())
     out["expected_periods"] = expected
     out["missing_periods"] = max(expected - distinct_periods, 0)
     if len(steps) and steps.max() > 1:

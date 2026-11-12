@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from dqp.profiling.profiler import _period_index, q
+from dqp.profiling.profiler import _period_index, open_days, q
 
 MAX_LISTED = 12
 
@@ -35,14 +35,16 @@ def _label(idx: int, freq: str) -> str:
     return str((pd.Timestamp("1970-01-01") + pd.Timedelta(days=idx)).date())
 
 
-def missing_periods(dates: pd.Series, freq: str) -> list[str]:
-    """Labels of the periods between the first and last date that have no row."""
+def missing_periods(dates: pd.Series, freq: str, weekmask: str | None = None) -> list[str]:
+    """Labels of the periods between the first and last date that have no row.
+    With a weekmask (business days, or days a shop is open) only those days count."""
     if dates.empty or freq not in ("daily", "weekly", "monthly", "quarterly", "annual", "business_daily"):
         return []
     dates = pd.Series(pd.to_datetime(dates)).sort_values()
-    if freq == "business_daily":
+    if freq == "business_daily" or weekmask:
         have = set(dates.dt.normalize())
-        return [str(d.date()) for d in pd.bdate_range(dates.iloc[0], dates.iloc[-1]) if d not in have]
+        days = open_days(dates.iloc[0], dates.iloc[-1], weekmask or "Mon Tue Wed Thu Fri")
+        return [str(d.date()) for d in days if d not in have]
     idx = set(_period_index(dates, freq))
     return [_label(i, freq) for i in range(min(idx), max(idx) + 1) if i not in idx]
 
@@ -57,7 +59,7 @@ def table_coverage(con, table: str, prof: dict) -> dict:
     out["frequency"] = d["frequency"]
     dates = pd.Series([r[0] for r in con.execute(
         f"SELECT DISTINCT {q(date_col)} FROM {q(table)} WHERE {q(date_col)} IS NOT NULL").fetchall()])
-    gaps = missing_periods(dates, d["frequency"])
+    gaps = missing_periods(dates, d["frequency"], d.get("weekmask"))
     out["missing_period_count"] = len(gaps)
     out["missing_periods"] = gaps[:MAX_LISTED * 4]
 

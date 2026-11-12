@@ -137,6 +137,33 @@ def test_business_days_skip_weekends(con):
     assert d["missing_periods"] == 1
 
 
+def test_a_weekday_without_rows_is_a_closed_day_not_a_gap(con):
+    # a shop open Monday to Saturday for four weeks, one Wednesday missing
+    days = [d for d in pd.date_range("2026-02-02", "2026-02-28") if d.day_of_week != 6]
+    days.remove(pd.Timestamp("2026-02-11"))
+    d = prof(con, {"d": [str(x.date()) for x in days]})["columns_profile"]["d"]["date"]
+    assert d["frequency"] == "daily" and d["closed_days"] == ["Sun"]
+    assert d["missing_periods"] == 1 and d["expected_periods"] == 24       # Sundays are not expected
+    assert "no rows on any Sun" in d["note"]                              # said, not hidden
+
+
+def test_two_weeks_are_too_few_to_call_a_day_closed(con):
+    days = [d for d in pd.date_range("2026-02-02", "2026-02-14") if d.day_of_week != 6]
+    d = prof(con, {"d": [str(x.date()) for x in days]})["columns_profile"]["d"]["date"]
+    assert "closed_days" not in d and d["missing_periods"] == 1
+
+
+def test_whole_numbers_are_typed_as_integers(con):
+    from dqp.validation.typed import create_typed_view
+
+    p = prof(con, {"qty": ["1", "2", "-3", "4"], "price": ["1.50", "2", "3", "4"]})
+    assert p["columns_profile"]["qty"]["numeric"]["integers"] is True
+    assert p["columns_profile"]["price"]["numeric"]["integers"] is False
+    view = create_typed_view(con, "t", p)
+    types = {r[0]: r[1] for r in con.execute(f'DESCRIBE "{view}"').fetchall()}
+    assert types["qty"] == "BIGINT" and types["price"] == "DOUBLE"
+
+
 def test_duplicate_dates(con):
     p = prof(con, {"d": ["2024-01", "2024-02", "2024-02", "2024-03"], "v": ["1", "2", "3", "4"]})
     d = p["columns_profile"]["d"]["date"]
