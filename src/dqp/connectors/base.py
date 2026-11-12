@@ -53,6 +53,44 @@ def require_file(path: Path) -> Path:
     return path
 
 
+def ensure_file(source) -> tuple[Path, list[str]]:
+    """Return the source's file, downloading it first if it is missing and the
+    config says where to get it. Returns notes for the run log."""
+    path = Path(source.path)
+    dl = getattr(source, "download", None)
+    if path.is_file() or dl is None:
+        return require_file(path), ([f"from {dl.url} (cached copy)"] if dl else [])
+    import tempfile
+    import urllib.request
+    import zipfile
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "download"
+        req = urllib.request.Request(dl.url, headers={"User-Agent": "dq-pipeline"})
+        try:
+            with urllib.request.urlopen(req, timeout=300) as resp, open(target, "wb") as f:
+                for chunk in iter(lambda: resp.read(1 << 20), b""):
+                    f.write(chunk)
+        except OSError as exc:
+            raise FileNotFoundError(f"{path} is missing and downloading {dl.url} failed: {exc}") from None
+        digest = file_sha256(target)
+        if dl.sha256 and digest != dl.sha256:
+            raise ValueError(f"download from {dl.url} has SHA-256 {digest}, expected {dl.sha256}: "
+                             f"the file changed at the source, check it before updating the config")
+        if dl.extract:
+            with zipfile.ZipFile(target) as z:
+                if dl.extract not in z.namelist():
+                    raise ValueError(f"{dl.url}: zip has no member {dl.extract!r}; members: {z.namelist()}")
+                with z.open(dl.extract) as src, open(path, "wb") as out:
+                    for chunk in iter(lambda: src.read(1 << 20), b""):
+                        out.write(chunk)
+        else:
+            target.replace(path)
+    note = f"downloaded from {dl.url}" + (", checksum verified" if dl.sha256 else " (no checksum configured)")
+    return path, [note]
+
+
 def unique_column_names(names: list[str]) -> tuple[list[str], list[str]]:
     """Blank names become column_<n>; repeated names get _2, _3 ... Returns the
     names and a note for every change, so renaming is never silent."""

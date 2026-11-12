@@ -11,7 +11,7 @@ from __future__ import annotations
 import duckdb
 
 from dqp.config import CsvSource
-from dqp.connectors.base import LoadResult, describe_table, file_sha256, require_file
+from dqp.connectors.base import LoadResult, describe_table, ensure_file, file_sha256
 
 
 class CsvLoadError(ValueError):
@@ -32,7 +32,7 @@ def _explain(msg: str, path, source: CsvSource) -> str:
 
 
 def load_csv(source: CsvSource, con: duckdb.DuckDBPyConnection) -> list[LoadResult]:
-    path = require_file(source.path)
+    path, notes = ensure_file(source)
     table = f"raw_{source.name}"
     try:
         con.execute(
@@ -59,5 +59,6 @@ def load_csv(source: CsvSource, con: duckdb.DuckDBPyConnection) -> list[LoadResu
             columns=len(names),
             column_names=names,
             sha256=file_sha256(path),
+            notes=notes,
         )
     ]

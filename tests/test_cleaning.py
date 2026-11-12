@@ -236,3 +236,32 @@ def test_raw_rule_fails_but_cleaned_data_passes(tmp_path):
 ])
 def test_snake(name, expected):
     assert snake(name) == expected
+
+
+# ---------- text columns (codes that look numeric) ----------
+
+def test_text_columns_keep_codes_as_text(tmp_path):
+    import yaml as _y
+    csv = "invoice,amount\n" + "".join(f"{489434 + i},{i + 1}\n" for i in range(40)) + "C489449,-5\n"
+    p = setup(tmp_path, csv=csv)
+    cfg = _y.safe_load(p.read_text())
+    plain = run(p)                                                         # without the override
+    (c,) = [c for c in plain["checks"].values() if c["stage"] == "raw" and "'invoice'" in c["name"]]
+    assert c["status"] == "WARN"                                           # C489449 "is not numeric"
+    cfg["text_columns"] = {"prices": ["invoice"]}
+    cfg["output_dir"] = str(tmp_path / "out2")
+    p.write_text(_y.safe_dump(cfg))
+    log = run(p)
+    assert not [c for c in log["checks"].values() if "'invoice'" in c["name"]]   # no type check on text
+    con = db(log)
+    assert con.execute("SELECT column_type FROM (DESCRIBE stg_prices) WHERE column_name = 'invoice'").fetchall() == [("VARCHAR",)]
+    assert con.execute("SELECT invoice FROM stg_prices WHERE invoice LIKE 'C%'").fetchall() == [("C489449",)]
+
+
+def test_text_columns_unknown_column_is_an_error(tmp_path):
+    import yaml as _y
+    p = setup(tmp_path)
+    cfg = _y.safe_load(p.read_text()); cfg["text_columns"] = {"prices": ["invoce"]}
+    p.write_text(_y.safe_dump(cfg))
+    with pytest.raises(ValueError, match="no column"):
+        run(p)

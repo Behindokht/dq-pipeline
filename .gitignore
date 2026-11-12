@@ -15,3 +15,6 @@ data/thesis/
 
 # Built by `dqp site` (in CI it is published to GitHub Pages)
 site/
+
+# Files fetched by `download:` sources (re-downloaded in CI, never committed)
+data/downloads/

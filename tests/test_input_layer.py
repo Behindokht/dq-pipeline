@@ -252,3 +252,42 @@ def test_csv_wrong_encoding_gives_a_hint(tmp_path):
     p = write_config(tmp_path, {"dataset": "l", "sources": [{"name": "l", "type": "csv", "path": str(csv)}]})
     with pytest.raises(CsvLoadError, match="encoding: latin-1"):
         run(p)
+
+
+# ---------- downloads ----------
+
+def test_download_with_checksum_and_zip_extract(tmp_path, monkeypatch):
+    import hashlib, io, urllib.request, zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("inner/data.csv", "a,b\n1,2\n3,4\n")
+    payload = buf.getvalue()
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=0: Resp(payload))
+
+    target = tmp_path / "cache" / "data.csv"
+    src = {"name": "d", "type": "csv", "path": str(target),
+           "download": {"url": "https://example.org/d.zip", "extract": "inner/data.csv",
+                        "sha256": hashlib.sha256(payload).hexdigest()}}
+    log = run(write_config(tmp_path, {"dataset": "d", "sources": [src]}))
+    assert log["loads"][0]["rows"] == 2 and target.exists()
+    assert "downloaded from https://example.org/d.zip, checksum verified" in log["loads"][0]["notes"]
+    log = run(write_config(tmp_path, {"dataset": "d", "sources": [src]}))            # second run: cached copy
+    assert "(cached copy)" in log["loads"][0]["notes"][0]
+
+
+def test_download_checksum_mismatch_stops_the_run(tmp_path, monkeypatch):
+    import io, urllib.request
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=0: Resp(b"a,b\n1,2\n"))
+    src = {"name": "d", "type": "csv", "path": str(tmp_path / "d.csv"),
+           "download": {"url": "https://example.org/d.csv", "sha256": "0" * 64}}
+    with pytest.raises(ValueError, match="the file changed at the source"):
+        run(write_config(tmp_path, {"dataset": "d", "sources": [src]}))
+    assert not (tmp_path / "d.csv").exists()

@@ -100,6 +100,9 @@ def run(config_path: str | Path, llm_client=None) -> dict:
         settings = ProfileSettings(**config.profiling.model_dump())
         with _Timer() as tm:
             raw_profiles = {t: profile_table(con, t, settings) for t in raw_tables}
+            text_cols = _text_columns(config, raw_tables, raw_profiles)
+            for t, cols in text_cols.items():
+                _force_text(raw_profiles[t], cols)
             highlights = [h for t, p in raw_profiles.items() for h in build_highlights(t, p)]
             _store_profiles(con, log["run_id"], "raw", raw_profiles, highlights)
         log["highlights"] = highlights
@@ -134,6 +137,8 @@ def run(config_path: str | Path, llm_client=None) -> dict:
             stg_profiles, stg_targets = {}, {}
             for stg, info in cleaning["tables"].items():
                 stg_profiles[stg] = _profile_typed(con, stg, stg_settings)
+                forced = text_cols.get(info["raw_table"], [])
+                _force_text(stg_profiles[stg], [c for c, rc in info["lineage"].items() if rc in forced])
                 _apply_cast_losses(stg_profiles[stg], info["cast_losses"])
                 stg_targets[stg] = Target(name=stg, view=stg, raw=info["raw_table"], lineage=info["lineage"])
             for mart in cleaning["marts"]:
@@ -240,6 +245,34 @@ def _profile_typed(con, table: str, settings: ProfileSettings) -> dict:
     casts = ", ".join(f"CAST({q(c)} AS VARCHAR) AS {q(c)}" for c in cols)
     con.execute(f"CREATE OR REPLACE VIEW {q(view)} AS SELECT _row, {casts} FROM {q(table)}")
     return profile_table(con, view, settings)
+
+
+def _text_columns(config, raw_tables: list[str], profiles: dict) -> dict[str, list[str]]:
+    """Resolve config.text_columns to raw table names, failing loudly on typos."""
+    out = {}
+    for name, cols in config.text_columns.items():
+        t = name if name in raw_tables else f"raw_{name.removeprefix('stg_')}"
+        if t not in raw_tables:
+            raise ValueError(f"text_columns: unknown table {name!r}; tables: {raw_tables}")
+        missing = [c for c in cols if c not in profiles[t]["columns_profile"]]
+        if missing:
+            raise ValueError(f"text_columns: {t} has no column(s) {missing}")
+        out[t] = cols
+    return out
+
+
+def _force_text(prof: dict, cols: list[str]) -> None:
+    """Treat these columns as text: codes like invoice numbers (489434, C489449)
+    look numeric but are identifiers, so no value 'fails' a numeric type."""
+    for c in cols:
+        p = prof["columns_profile"][c]
+        p.update(inferred_type="text", type_share=1.0, nonconforming=0, nonconforming_examples=[],
+                 type_override="text (config)")
+        p.pop("numeric", None)
+        p.pop("date", None)
+        p.pop("mixed_dominant_type", None)
+    if prof.get("main_date_column") in cols:
+        prof["main_date_column"] = None
 
 
 def _apply_cast_losses(prof: dict, losses: dict) -> None:

@@ -26,10 +26,20 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class Download(_Strict):
+    """Fetch the source file when it is not on disk yet (e.g. in CI). The file is
+    kept at the source's `path`, so later runs reuse it."""
+    url: str = Field(pattern=r"^https://", description="Where to download from (https only).")
+    sha256: str | None = Field(None, pattern=r"^[0-9a-f]{64}$",
+                               description="Expected SHA-256 of the downloaded file; a mismatch stops the run.")
+    extract: str | None = Field(None, description="If the download is a zip: the member to extract to `path`.")
+
+
 class CsvSource(_Strict):
     type: Literal["csv"]
     name: str = Field(pattern=NAME_PATTERN, description="Becomes the table name raw_<name>.")
     path: Path
+    download: Download | None = None
     delimiter: str = ","
     header: bool = True
     encoding: Literal["utf-8", "utf-16", "latin-1"] = "utf-8"
@@ -66,6 +76,9 @@ class ExcelSource(_Strict):
     type: Literal["excel"]
     name: str = Field(pattern=NAME_PATTERN, description="Prefix for the tables raw_<name>__<sheet>.")
     path: Path
+    download: Download | None = None
+    engine: Literal["auto", "openpyxl", "calamine"] = Field(
+        "auto", description="auto: the fast calamine reader when installed, else openpyxl/xlrd.")
     sheets: Union[Literal["all"], list[Union[str, SheetSpec]]] = "all"
     header_rows: HeaderRows = Field(
         0, description="Default header row(s) for sheets without their own setting. Rows above are title lines.")
@@ -300,6 +313,10 @@ class DatasetConfig(_Strict):
     description: str = ""
     sources: list[Source] = Field(min_length=1)
     profiling: ProfilingConfig = Field(default_factory=ProfilingConfig)
+    text_columns: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Columns to keep as text whatever their values look like, per raw table, e.g. "
+                    "{retail__year_2009_2010: [Invoice]}: IDs such as 489434 / C489449 are codes, not numbers.")
     cleaning: dict[str, list[CleaningStep]] = Field(
         default_factory=dict, description="Steps per table, keyed by table name (e.g. artprice__data).")
     marts: list[Mart] = Field(default_factory=list)

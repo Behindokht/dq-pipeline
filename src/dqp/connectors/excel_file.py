@@ -20,7 +20,7 @@ from dqp.connectors.base import (
     LoadResult,
     describe_table,
     file_sha256,
-    require_file,
+    ensure_file,
     unique_column_names,
     write_frame_as_text,
 )
@@ -53,9 +53,21 @@ def build_header(grid: pd.DataFrame, header_rows: list[int]) -> list[str]:
     return names
 
 
+def _engine(choice: str) -> str | None:
+    """calamine (Rust) reads large workbooks many times faster than openpyxl."""
+    if choice == "auto":
+        try:
+            import python_calamine  # noqa: F401
+            return "calamine"
+        except ImportError:
+            return None
+    return None if choice == "openpyxl" else choice
+
+
 def load_excel(source: ExcelSource, con: duckdb.DuckDBPyConnection) -> list[LoadResult]:
-    path = require_file(source.path)
-    book = pd.ExcelFile(path)  # engine chosen from file content, not the extension
+    path, dl_notes = ensure_file(source)
+    engine = _engine(source.engine)
+    book = pd.ExcelFile(path, engine=engine)  # None: chosen from file content, not the extension
     available = book.sheet_names
     specs = source.sheet_specs(available)
 
@@ -86,7 +98,7 @@ def load_excel(source: ExcelSource, con: duckdb.DuckDBPyConnection) -> list[Load
             raise ValueError(f"{path} [{spec.sheet}]: header row {header_rows[-1]} is beyond "
                              f"the last row ({len(grid) - 1})")
 
-        notes = []
+        notes = list(dl_notes)
         if header_rows[0] > 0:
             notes.append(f"skipped {header_rows[0]} title line(s) above the header")
         if len(header_rows) > 1:
