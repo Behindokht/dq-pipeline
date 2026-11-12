@@ -20,7 +20,7 @@ summarises it, with an AI summary layer that only works on validated, computed n
 | 5. AI summary | plain-language report; the LLM never types a number, a checker enforces it; template fallback | ✅ done (LLM path tested with fake clients, see below) |
 | 6. Output | HTML report, GitHub Actions (tests on Python 3.10 and 3.12, pipeline run, Pages deploy) | ✅ done |
 
-143 tests cover the layers (`pytest`).
+145 tests cover the layers (`pytest`).
 
 ## Example: what profiling found in my thesis data
 
@@ -115,8 +115,20 @@ data is licensed.
 3. **deploy:** publishes the site to GitHub Pages
 
 Add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` as a repository secret to have the summary written
-by an LLM; without one the template writes it. The thesis data is licensed and not in the repo,
-so it runs only locally.
+by an LLM; without one the template writes it.
+
+The thesis data is licensed and not in the repo, so it runs only locally. Its report reaches the
+site as a snapshot:
+
+```bash
+dqp run configs/thesis_assets.yaml
+dqp snapshot outputs/thesis_assets --out snapshots/thesis_assets
+```
+
+`dqp snapshot` refuses any run whose report shows data values (`report.show_values` must be
+`false`) and drops the parts of the run log that quote raw values. Before the first snapshot was
+committed, all 24,635 Artprice and Nareit values were searched for in the snapshot files: none
+appear.
 
 ## Example: the summary
 

@@ -1,6 +1,8 @@
 """Command line entry points:
     dqp run configs/copper.yaml          run the pipeline
     dqp site --out site outputs/copper   build the GitHub Pages site from finished runs
+    dqp snapshot outputs/thesis_assets --out snapshots/thesis_assets
+                                         quality-only copy of a local run, for the site
 """
 
 from __future__ import annotations
@@ -25,7 +27,19 @@ def main(argv: list[str] | None = None) -> int:
     site_cmd.add_argument("runs", nargs="+", help="output folders of finished runs, e.g. outputs/copper")
     site_cmd.add_argument("--out", default="site", help="folder to write the site to (default: site)")
     site_cmd.add_argument("--repo-url", default=None, help="link to the code, shown on the index page")
+    snap_cmd = sub.add_parser("snapshot", help="copy a quality-only report of a local run for the site")
+    snap_cmd.add_argument("run", help="output folder of a finished run, e.g. outputs/thesis_assets")
+    snap_cmd.add_argument("--out", required=True, help="folder to write the snapshot to")
     args = parser.parse_args(argv)
+    if args.command == "snapshot":
+        from dqp.site import make_snapshot
+        try:
+            out = make_snapshot(args.run, args.out)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"[failed] {exc}", file=sys.stderr)
+            return 1
+        print(f"snapshot written to {out}/")
+        return 0
     if args.command == "site":
         from dqp.site import build_site
         try:

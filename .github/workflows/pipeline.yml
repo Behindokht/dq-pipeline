@@ -7,7 +7,8 @@
 # Optional: add ANTHROPIC_API_KEY (or OPENAI_API_KEY) as a repository secret to have the
 # summary written by an LLM; without it the built-in template writes it. Either way the
 # number checker runs.
-# Thesis data is licensed and not in the repo, so it is not run here.
+# Thesis data is licensed and not in the repo, so it is not run here; its quality-only
+# report is published from a snapshot made locally with `dqp snapshot`.
 
 name: pipeline
 
@@ -59,7 +60,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: dqp run --strict configs/copper.yaml
       - name: Build the site
-        run: dqp site --out site --repo-url "${{ github.server_url }}/${{ github.repository }}" outputs/copper
+        # snapshots/ holds quality-only reports of local runs whose data is licensed
+        run: dqp site --out site --repo-url "${{ github.server_url }}/${{ github.repository }}" outputs/copper snapshots/thesis_assets
       - name: Keep the run's output files
         uses: actions/upload-artifact@v4
         with:

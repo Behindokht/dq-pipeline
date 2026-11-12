@@ -74,6 +74,7 @@ def _card(slug: str, log: dict, facts: dict) -> str:
     <dt>Summary written by</dt><dd>{by}</dd>
     <dt>Report</dt><dd>{shown}</dd>
     <dt>Run</dt><dd class="mono">{_e(log['started_at'][:16].replace('T', ' '))} UTC</dd>
+    <dt>Built by</dt><dd>{"a local run (data not in the repo)" if log.get("snapshot") else "GitHub Actions"}</dd>
   </dl>
   <a class="open" href="{_e(slug)}/">Open report →</a>
 </article>"""
@@ -126,11 +127,47 @@ def build_site(out: str | Path, run_dirs: list[str | Path], repo_url: str | None
   <div class="meta">{repo}</div>
 </header>
 {grid_sections(sections)}
-<footer><span>Built by GitHub Actions from the pipeline's own output files.</span></footer>
+<footer><span>Built by GitHub Actions from the pipeline's own output files. Reports marked "a local run"
+  are snapshots of datasets whose data cannot be published; they show quality results only.</span></footer>
 </main>
 </body>
 </html>
 """
     (out / "index.html").write_text(html, encoding="utf-8")
     (out / ".nojekyll").write_text("", encoding="utf-8")
+    return out
+
+
+SNAPSHOT_FILES = ("report.html", "facts.json")
+
+
+def make_snapshot(run_dir: str | Path, out: str | Path) -> Path:
+    """Copy what the site needs from a local run, for datasets whose data is not in the repo.
+
+    Refuses unless the run's report was made with report.show_values: false, so data
+    values can never reach the public site this way. The run log is reduced to the
+    fields the site reads; profile highlights are dropped because they quote raw values."""
+    run_dir, out = Path(run_dir), Path(out)
+    log = json.loads((run_dir / "run_log.json").read_text(encoding="utf-8"))
+    if log.get("status") != "success":
+        raise ValueError(f"{run_dir}: the last run did not finish")
+    report_step = next((s for s in log["steps"] if s["step"] == "report"), None)
+    if report_step is None or report_step.get("show_values") is not False:
+        raise ValueError(f"{run_dir}: refusing to snapshot a report that shows data values; "
+                         f"set report.show_values: false in the config and run again")
+    facts = json.loads((run_dir / "facts.json").read_text(encoding="utf-8"))["facts"]
+    if any(k.startswith("key.") and k != "key.available" for k in facts):
+        raise ValueError(f"{run_dir}: facts.json holds headline numbers; refusing to snapshot")
+    out.mkdir(parents=True, exist_ok=True)
+    for name in SNAPSHOT_FILES:
+        shutil.copyfile(run_dir / name, out / name)
+    keep = ("run_id", "dataset", "config_sha256", "dqp_version", "started_at", "finished_at", "status",
+            "validation", "cleaning", "summary")
+    slim = {k: log[k] for k in keep if k in log}
+    slim["loads"] = [{k: l[k] for k in ("table", "location", "sheet", "rows", "columns", "status")}
+                     for l in log["loads"]]
+    for l in slim["loads"]:
+        l["location"] = Path(l["location"]).name
+    slim["snapshot"] = True
+    (out / "run_log.json").write_text(json.dumps(slim, indent=2), encoding="utf-8")
     return out

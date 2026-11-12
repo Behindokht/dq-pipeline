@@ -1,0 +1,138 @@
+{
+  "run_id": "bbf0ac4986c5",
+  "dataset": "thesis_assets",
+  "config_sha256": "dc5bc523120f",
+  "dqp_version": "0.1.0",
+  "started_at": "2026-11-12T14:55:29+00:00",
+  "finished_at": "2026-11-12T14:55:46+00:00",
+  "status": "success",
+  "validation": {
+    "status": "passed",
+    "summary": {
+      "PASS": 384,
+      "WARN": 0,
+      "FAIL": 0,
+      "INFO": 0,
+      "ERROR": 0
+    },
+    "stages": {
+      "raw": {
+        "status": "failed",
+        "summary": {
+          "PASS": 340,
+          "WARN": 4,
+          "FAIL": 1,
+          "INFO": 0,
+          "ERROR": 0
+        }
+      },
+      "staging": {
+        "status": "passed",
+        "summary": {
+          "PASS": 384,
+          "WARN": 0,
+          "FAIL": 0,
+          "INFO": 0,
+          "ERROR": 0
+        }
+      }
+    }
+  },
+  "cleaning": {
+    "stg_master__sheet1": {
+      "rows_raw": 112,
+      "rows_staging": 112,
+      "rows_rejected": 0
+    },
+    "stg_artprice__data": {
+      "rows_raw": 115,
+      "rows_staging": 113,
+      "rows_rejected": 2
+    },
+    "stg_nareit__index_data": {
+      "rows_raw": 650,
+      "rows_staging": 650,
+      "rows_rejected": 0
+    },
+    "stg_worldbank__monthly_prices": {
+      "rows_raw": 780,
+      "rows_staging": 780,
+      "rows_rejected": 0
+    },
+    "stg_fx_eur_usd_daily": {
+      "rows_raw": 7070,
+      "rows_staging": 7070,
+      "rows_rejected": 0
+    },
+    "stg_equity_us_q": {
+      "rows_raw": 276,
+      "rows_staging": 276,
+      "rows_rejected": 0
+    }
+  },
+  "summary": {
+    "source": "template",
+    "reason": "no LLM used: no API key found ($ANTHROPIC_API_KEY, $OPENAI_API_KEY not set)",
+    "model": null,
+    "attempts": 0
+  },
+  "loads": [
+    {
+      "table": "raw_master__sheet1",
+      "location": "FinalMasterSheet.xlsx",
+      "sheet": "Sheet1",
+      "rows": 112,
+      "columns": 186,
+      "status": "loaded"
+    },
+    {
+      "table": "raw_artprice__data",
+      "location": "art_artprice_global_index_q.xls.xls",
+      "sheet": "Data",
+      "rows": 115,
+      "columns": 15,
+      "status": "loaded"
+    },
+    {
+      "table": null,
+      "location": "realestate_reit_nareit_monthly.csv.xls",
+      "sheet": "Var",
+      "rows": 0,
+      "columns": 0,
+      "status": "skipped"
+    },
+    {
+      "table": "raw_nareit__index_data",
+      "location": "realestate_reit_nareit_monthly.csv.xls",
+      "sheet": "Index Data",
+      "rows": 650,
+      "columns": 37,
+      "status": "loaded"
+    },
+    {
+      "table": "raw_worldbank__monthly_prices",
+      "location": "commodity_worldbank_monthly.xlsx.xlsx",
+      "sheet": "Monthly Prices",
+      "rows": 780,
+      "columns": 72,
+      "status": "loaded"
+    },
+    {
+      "table": "raw_fx_eur_usd_daily",
+      "location": "fx_eur_usd_daily.csv.csv",
+      "sheet": null,
+      "rows": 7070,
+      "columns": 2,
+      "status": "loaded"
+    },
+    {
+      "table": "raw_equity_us_q",
+      "location": "equity_us_oecd_q.csv.csv",
+      "sheet": null,
+      "rows": 276,
+      "columns": 2,
+      "status": "loaded"
+    }
+  ],
+  "snapshot": true
+}

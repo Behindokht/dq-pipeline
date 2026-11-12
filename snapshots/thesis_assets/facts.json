@@ -1,0 +1,586 @@
+{
+  "run_id": "bbf0ac4986c5",
+  "facts": {
+    "dataset.name": {
+      "id": "dataset.name",
+      "value": "thesis_assets",
+      "kind": "text",
+      "desc": "dataset name",
+      "required": false
+    },
+    "dataset.description": {
+      "id": "dataset.description",
+      "value": "Multi-asset data from my MSc thesis \"Art on the Portfolio Wall\" (1998-2025): the final quarterly master sheet plus the raw source files it was built from. Chosen because the raw files are messy in typical real-world ways: title lines, multi-row headers, legacy .xls, double file extensions, daily vs quarterly data.",
+      "kind": "text",
+      "desc": "dataset description",
+      "required": false
+    },
+    "dataset.tables": {
+      "id": "dataset.tables",
+      "value": 6,
+      "kind": "number",
+      "desc": "tables loaded from the sources",
+      "required": false
+    },
+    "dataset.raw_rows": {
+      "id": "dataset.raw_rows",
+      "value": 9003,
+      "kind": "number",
+      "desc": "rows loaded in total",
+      "required": false
+    },
+    "dataset.sources": {
+      "id": "dataset.sources",
+      "value": "FinalMasterSheet.xlsx, art_artprice_global_index_q.xls.xls, commodity_worldbank_monthly.xlsx.xlsx, equity_us_oecd_q.csv.csv, fx_eur_usd_daily.csv.csv, realestate_reit_nareit_monthly.csv.xls",
+      "kind": "text",
+      "desc": "source files",
+      "required": false
+    },
+    "arrival.status": {
+      "id": "arrival.status",
+      "value": "failed",
+      "kind": "status",
+      "desc": "validation result on arrival (raw data)",
+      "required": true
+    },
+    "arrival.pass": {
+      "id": "arrival.pass",
+      "value": 340,
+      "kind": "number",
+      "desc": "checks with status PASS on arrival (raw data)",
+      "required": false
+    },
+    "arrival.warn": {
+      "id": "arrival.warn",
+      "value": 4,
+      "kind": "number",
+      "desc": "checks with status WARN on arrival (raw data)",
+      "required": false
+    },
+    "arrival.fail": {
+      "id": "arrival.fail",
+      "value": 1,
+      "kind": "number",
+      "desc": "checks with status FAIL on arrival (raw data)",
+      "required": true
+    },
+    "arrival.info": {
+      "id": "arrival.info",
+      "value": 0,
+      "kind": "number",
+      "desc": "checks with status INFO on arrival (raw data)",
+      "required": false
+    },
+    "arrival.error": {
+      "id": "arrival.error",
+      "value": 0,
+      "kind": "number",
+      "desc": "checks with status ERROR on arrival (raw data)",
+      "required": false
+    },
+    "arrival.checks": {
+      "id": "arrival.checks",
+      "value": 345,
+      "kind": "number",
+      "desc": "checks run on arrival (raw data)",
+      "required": false
+    },
+    "final.status": {
+      "id": "final.status",
+      "value": "passed",
+      "kind": "status",
+      "desc": "validation result after cleaning (the result that counts)",
+      "required": true
+    },
+    "final.pass": {
+      "id": "final.pass",
+      "value": 384,
+      "kind": "number",
+      "desc": "checks with status PASS after cleaning (the result that counts)",
+      "required": false
+    },
+    "final.warn": {
+      "id": "final.warn",
+      "value": 0,
+      "kind": "number",
+      "desc": "checks with status WARN after cleaning (the result that counts)",
+      "required": false
+    },
+    "final.fail": {
+      "id": "final.fail",
+      "value": 0,
+      "kind": "number",
+      "desc": "checks with status FAIL after cleaning (the result that counts)",
+      "required": false
+    },
+    "final.info": {
+      "id": "final.info",
+      "value": 0,
+      "kind": "number",
+      "desc": "checks with status INFO after cleaning (the result that counts)",
+      "required": false
+    },
+    "final.error": {
+      "id": "final.error",
+      "value": 0,
+      "kind": "number",
+      "desc": "checks with status ERROR after cleaning (the result that counts)",
+      "required": false
+    },
+    "final.checks": {
+      "id": "final.checks",
+      "value": 384,
+      "kind": "number",
+      "desc": "checks run after cleaning (the result that counts)",
+      "required": false
+    },
+    "check1.status": {
+      "id": "check1.status",
+      "value": "FAIL",
+      "kind": "status",
+      "desc": "status of a check on arrival",
+      "required": true
+    },
+    "check1.stage": {
+      "id": "check1.stage",
+      "value": "on arrival",
+      "kind": "text",
+      "desc": "when the check ran",
+      "required": false
+    },
+    "check1.table": {
+      "id": "check1.table",
+      "value": "raw_artprice__data",
+      "kind": "text",
+      "desc": "table checked",
+      "required": false
+    },
+    "check1.name": {
+      "id": "check1.name",
+      "value": "every row has a valid date (on arrival)",
+      "kind": "text",
+      "desc": "what the check tests",
+      "required": false
+    },
+    "check1.failing": {
+      "id": "check1.failing",
+      "value": 2,
+      "kind": "number",
+      "desc": "rows or items that failed the check",
+      "required": false
+    },
+    "check1.detail": {
+      "id": "check1.detail",
+      "value": "2 row(s) missing a value or holding one that is not a valid column_1",
+      "kind": "text",
+      "desc": "the check's own result line",
+      "required": false
+    },
+    "check2.status": {
+      "id": "check2.status",
+      "value": "WARN",
+      "kind": "status",
+      "desc": "status of a check on arrival",
+      "required": false
+    },
+    "check2.stage": {
+      "id": "check2.stage",
+      "value": "on arrival",
+      "kind": "text",
+      "desc": "when the check ran",
+      "required": false
+    },
+    "check2.table": {
+      "id": "check2.table",
+      "value": "raw_artprice__data",
+      "kind": "text",
+      "desc": "table checked",
+      "required": false
+    },
+    "check2.name": {
+      "id": "check2.name",
+      "value": "values in 'column_1' are date",
+      "kind": "text",
+      "desc": "what the check tests",
+      "required": false
+    },
+    "check2.failing": {
+      "id": "check2.failing",
+      "value": 2,
+      "kind": "number",
+      "desc": "rows or items that failed the check",
+      "required": false
+    },
+    "check2.detail": {
+      "id": "check2.detail",
+      "value": "2 of 115 non-empty values are not date",
+      "kind": "text",
+      "desc": "the check's own result line",
+      "required": false
+    },
+    "check3.status": {
+      "id": "check3.status",
+      "value": "WARN",
+      "kind": "status",
+      "desc": "status of a check on arrival",
+      "required": false
+    },
+    "check3.stage": {
+      "id": "check3.stage",
+      "value": "on arrival",
+      "kind": "text",
+      "desc": "when the check ran",
+      "required": false
+    },
+    "check3.table": {
+      "id": "check3.table",
+      "value": "raw_artprice__data",
+      "kind": "text",
+      "desc": "table checked",
+      "required": false
+    },
+    "check3.name": {
+      "id": "check3.name",
+      "value": "values in 'Global Index (USD)' are numeric",
+      "kind": "text",
+      "desc": "what the check tests",
+      "required": false
+    },
+    "check3.failing": {
+      "id": "check3.failing",
+      "value": 2,
+      "kind": "number",
+      "desc": "rows or items that failed the check",
+      "required": false
+    },
+    "check3.detail": {
+      "id": "check3.detail",
+      "value": "2 of 115 non-empty values are not numeric",
+      "kind": "text",
+      "desc": "the check's own result line",
+      "required": false
+    },
+    "check4.status": {
+      "id": "check4.status",
+      "value": "WARN",
+      "kind": "status",
+      "desc": "status of a check on arrival",
+      "required": false
+    },
+    "check4.stage": {
+      "id": "check4.stage",
+      "value": "on arrival",
+      "kind": "text",
+      "desc": "when the check ran",
+      "required": false
+    },
+    "check4.table": {
+      "id": "check4.table",
+      "value": "raw_artprice__data",
+      "kind": "text",
+      "desc": "table checked",
+      "required": false
+    },
+    "check4.name": {
+      "id": "check4.name",
+      "value": "values in 'Global Index (EUR)' are numeric",
+      "kind": "text",
+      "desc": "what the check tests",
+      "required": false
+    },
+    "check4.failing": {
+      "id": "check4.failing",
+      "value": 1,
+      "kind": "number",
+      "desc": "rows or items that failed the check",
+      "required": false
+    },
+    "check4.detail": {
+      "id": "check4.detail",
+      "value": "1 of 114 non-empty values are not numeric",
+      "kind": "text",
+      "desc": "the check's own result line",
+      "required": false
+    },
+    "check5.status": {
+      "id": "check5.status",
+      "value": "WARN",
+      "kind": "status",
+      "desc": "status of a check on arrival",
+      "required": false
+    },
+    "check5.stage": {
+      "id": "check5.stage",
+      "value": "on arrival",
+      "kind": "text",
+      "desc": "when the check ran",
+      "required": false
+    },
+    "check5.table": {
+      "id": "check5.table",
+      "value": "raw_artprice__data",
+      "kind": "text",
+      "desc": "table checked",
+      "required": false
+    },
+    "check5.name": {
+      "id": "check5.name",
+      "value": "values in 'Print' are numeric",
+      "kind": "text",
+      "desc": "what the check tests",
+      "required": false
+    },
+    "check5.failing": {
+      "id": "check5.failing",
+      "value": 1,
+      "kind": "number",
+      "desc": "rows or items that failed the check",
+      "required": false
+    },
+    "check5.detail": {
+      "id": "check5.detail",
+      "value": "1 of 114 non-empty values are not numeric",
+      "kind": "text",
+      "desc": "the check's own result line",
+      "required": false
+    },
+    "clean.changes": {
+      "id": "clean.changes",
+      "value": 1,
+      "kind": "number",
+      "desc": "cleaning steps that removed rows or changed values",
+      "required": false
+    },
+    "clean.rejected_rows": {
+      "id": "clean.rejected_rows",
+      "value": 2,
+      "kind": "number",
+      "desc": "rows moved to rejected_ tables (kept, not deleted)",
+      "required": true
+    },
+    "clean.marts": {
+      "id": "clean.marts",
+      "value": 2,
+      "kind": "number",
+      "desc": "mart tables built",
+      "required": false
+    },
+    "clean1.table": {
+      "id": "clean1.table",
+      "value": "stg_artprice__data",
+      "kind": "text",
+      "desc": "table cleaned",
+      "required": false
+    },
+    "clean1.action": {
+      "id": "clean1.action",
+      "value": "drop_rows",
+      "kind": "text",
+      "desc": "cleaning action",
+      "required": false
+    },
+    "clean1.reason": {
+      "id": "clean1.reason",
+      "value": "footer notes under the data in the Artprice download (a contact line and a description); Excel stored numbers next to them as 1900 dates",
+      "kind": "text",
+      "desc": "why (from the config)",
+      "required": false
+    },
+    "clean1.rows_removed": {
+      "id": "clean1.rows_removed",
+      "value": 2,
+      "kind": "number",
+      "desc": "rows removed by this step",
+      "required": true
+    },
+    "clean1.values_changed": {
+      "id": "clean1.values_changed",
+      "value": 0,
+      "kind": "number",
+      "desc": "values changed by this step",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.table": {
+      "id": "gap.worldbank__monthly_prices.table",
+      "value": "stg_worldbank__monthly_prices",
+      "kind": "text",
+      "desc": "table with documented gaps",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.columns_with_holes": {
+      "id": "gap.worldbank__monthly_prices.columns_with_holes",
+      "value": 6,
+      "kind": "number",
+      "desc": "columns of stg_worldbank__monthly_prices with values missing inside their own date range",
+      "required": true
+    },
+    "gap.worldbank__monthly_prices.col1.name": {
+      "id": "gap.worldbank__monthly_prices.col1.name",
+      "value": "sunflower_oil_mt",
+      "kind": "text",
+      "desc": "column with a gap",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col1.missing": {
+      "id": "gap.worldbank__monthly_prices.col1.missing",
+      "value": 5,
+      "kind": "number",
+      "desc": "values missing inside its range",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col1.dates": {
+      "id": "gap.worldbank__monthly_prices.col1.dates",
+      "value": "2002-07-01, 2002-09-01, 2002-10-01, 2002-11-01 ...",
+      "kind": "text",
+      "desc": "the missing dates",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col2.name": {
+      "id": "gap.worldbank__monthly_prices.col2.name",
+      "value": "rice_thai_25_mt",
+      "kind": "text",
+      "desc": "column with a gap",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col2.missing": {
+      "id": "gap.worldbank__monthly_prices.col2.missing",
+      "value": 8,
+      "kind": "number",
+      "desc": "values missing inside its range",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col2.dates": {
+      "id": "gap.worldbank__monthly_prices.col2.dates",
+      "value": "1988-08-01, 1989-06-01, 1990-06-01, 2008-02-01 ...",
+      "kind": "text",
+      "desc": "the missing dates",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col3.name": {
+      "id": "gap.worldbank__monthly_prices.col3.name",
+      "value": "rice_viet_namese_5_mt",
+      "kind": "text",
+      "desc": "column with a gap",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col3.missing": {
+      "id": "gap.worldbank__monthly_prices.col3.missing",
+      "value": 11,
+      "kind": "number",
+      "desc": "values missing inside its range",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col3.dates": {
+      "id": "gap.worldbank__monthly_prices.col3.dates",
+      "value": "2005-12-01, 2006-11-01, 2006-12-01, 2007-01-01 ...",
+      "kind": "text",
+      "desc": "the missing dates",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col4.name": {
+      "id": "gap.worldbank__monthly_prices.col4.name",
+      "value": "wheat_us_srw_mt",
+      "kind": "text",
+      "desc": "column with a gap",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col4.missing": {
+      "id": "gap.worldbank__monthly_prices.col4.missing",
+      "value": 7,
+      "kind": "number",
+      "desc": "values missing inside its range",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col4.dates": {
+      "id": "gap.worldbank__monthly_prices.col4.dates",
+      "value": "2021-10-01, 2022-08-01, 2022-09-01, 2022-10-01 ...",
+      "kind": "text",
+      "desc": "the missing dates",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col5.name": {
+      "id": "gap.worldbank__monthly_prices.col5.name",
+      "value": "sawnwood_cameroon_cubic_meter",
+      "kind": "text",
+      "desc": "column with a gap",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col5.missing": {
+      "id": "gap.worldbank__monthly_prices.col5.missing",
+      "value": 252,
+      "kind": "number",
+      "desc": "values missing inside its range",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col5.dates": {
+      "id": "gap.worldbank__monthly_prices.col5.dates",
+      "value": "1971-01-01, 1971-02-01, 1971-03-01, 1971-04-01 ...",
+      "kind": "text",
+      "desc": "the missing dates",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col6.name": {
+      "id": "gap.worldbank__monthly_prices.col6.name",
+      "value": "phosphate_rock_mt",
+      "kind": "text",
+      "desc": "column with a gap",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col6.missing": {
+      "id": "gap.worldbank__monthly_prices.col6.missing",
+      "value": 1,
+      "kind": "number",
+      "desc": "values missing inside its range",
+      "required": false
+    },
+    "gap.worldbank__monthly_prices.col6.dates": {
+      "id": "gap.worldbank__monthly_prices.col6.dates",
+      "value": "2023-11-01",
+      "kind": "text",
+      "desc": "the missing dates",
+      "required": false
+    },
+    "gap.fx_eur_usd_daily.table": {
+      "id": "gap.fx_eur_usd_daily.table",
+      "value": "stg_fx_eur_usd_daily",
+      "kind": "text",
+      "desc": "table with documented gaps",
+      "required": false
+    },
+    "gap.fx_eur_usd_daily.columns_with_holes": {
+      "id": "gap.fx_eur_usd_daily.columns_with_holes",
+      "value": 1,
+      "kind": "number",
+      "desc": "columns of stg_fx_eur_usd_daily with values missing inside their own date range",
+      "required": true
+    },
+    "gap.fx_eur_usd_daily.col1.name": {
+      "id": "gap.fx_eur_usd_daily.col1.name",
+      "value": "usd_per_eur",
+      "kind": "text",
+      "desc": "column with a gap",
+      "required": false
+    },
+    "gap.fx_eur_usd_daily.col1.missing": {
+      "id": "gap.fx_eur_usd_daily.col1.missing",
+      "value": 275,
+      "kind": "number",
+      "desc": "values missing inside its range",
+      "required": false
+    },
+    "gap.fx_eur_usd_daily.col1.dates": {
+      "id": "gap.fx_eur_usd_daily.col1.dates",
+      "value": "1999-01-18, 1999-02-15, 1999-05-31, 1999-07-05 ...",
+      "kind": "text",
+      "desc": "the missing dates",
+      "required": false
+    },
+    "key.available": {
+      "id": "key.available",
+      "value": "hidden",
+      "kind": "text",
+      "desc": "whether headline numbers are given (only when validation after cleaning did not fail)",
+      "required": false
+    }
+  }
+}

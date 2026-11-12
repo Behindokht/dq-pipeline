@@ -120,3 +120,28 @@ def test_site_refuses_a_folder_without_a_finished_run(tmp_path, capsys):
     (tmp_path / "empty").mkdir()
     assert main(["site", "--out", str(tmp_path / "s"), str(tmp_path / "empty")]) == 1
     assert "no finished run" in capsys.readouterr().err
+
+
+# ---------- snapshots of local runs ----------
+
+def test_snapshot_refuses_a_report_with_values(tmp_path, capsys):
+    from dqp.cli import main
+    out_dir = Path(run(setup(tmp_path, show_values=True))["db_path"]).parent
+    assert main(["snapshot", str(out_dir), "--out", str(tmp_path / "snap")]) == 1
+    assert "refusing to snapshot" in capsys.readouterr().err
+    assert not (tmp_path / "snap").exists()
+
+
+def test_snapshot_of_quality_only_report_goes_on_the_site(tmp_path):
+    import json
+    from dqp.cli import main
+    out_dir = Path(run(setup(tmp_path, show_values=False))["db_path"]).parent
+    snap = tmp_path / "snap"
+    assert main(["snapshot", str(out_dir), "--out", str(snap)]) == 0
+    log = json.loads((snap / "run_log.json").read_text())
+    assert log["snapshot"] is True and "highlights" not in log and "steps" not in log
+    assert "/" not in log["loads"][0]["location"]                 # no local paths
+    for value in ("117.5", "118.75", "Source: example"):
+        assert value not in "".join(p.read_text() for p in snap.iterdir())
+    assert main(["site", "--out", str(tmp_path / "site"), str(snap)]) == 0
+    assert "a local run (data not in the repo)" in (tmp_path / "site" / "index.html").read_text()
