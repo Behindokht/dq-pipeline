@@ -17,6 +17,8 @@ Nothing is cleaned or judged automatically: init proposes, the person decides.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+from dataclasses import dataclass, field
 import re
 from pathlib import Path
 
@@ -252,16 +254,62 @@ def _engine():
         return None
 
 
-# ---------------------------------------------------------------- config text
+# ---------------------------------------------------------------- analysis
 
-def build_config(path: str | Path, name: str | None = None) -> tuple[str, list[str]]:
-    """Return (config text, notes). The config is validated and loaded once before
-    it is returned, so the person gets a file that runs."""
+@dataclass
+class Suggestion:
+    """One proposal for the config. `config` is exactly what goes into the YAML:
+    a list of column names (text_columns), one cleaning step, one rule, or
+    {check: setting} (generic). `note` says in plain words why it is proposed."""
+    section: str                 # text_columns | cleaning | rules | generic
+    table: str                   # table name as the config uses it ('' for generic)
+    config: object
+    note: str = ""
+    needs_reason: bool = False   # a person has to write the reason (cleaning steps that remove rows)
+
+    @property
+    def id(self) -> str:
+        digest = hashlib.sha1(yaml.safe_dump(self.config, sort_keys=True).encode()).hexdigest()[:8]
+        return f"{self.section}:{self.table}:{digest}"
+
+
+@dataclass
+class Analysis:
+    dataset: str
+    source: dict                 # the source block of the config (the sheet link for Google Sheets)
+    local_path: Path             # the file that was read (the downloaded copy for Google Sheets)
+    label: str                   # how to name the input in text: 'sales.csv', 'the Google Sheet'
+    notes: list[str]
+    profiles: dict               # raw table -> profile
+    suggestions: list[Suggestion] = field(default_factory=list)
+    final_names: dict = field(default_factory=dict)   # raw table -> {column: name after suggested cleaning}
+
+    def config(self, accepted: list[Suggestion] | None = None, description: str | None = None) -> dict:
+        """The config as a dict, with the given suggestions switched on."""
+        cfg: dict = {"dataset": self.dataset}
+        if description:
+            cfg["description"] = description
+        cfg["sources"] = [self.source]
+        for s in accepted or []:
+            if s.section == "text_columns":
+                cfg.setdefault("text_columns", {})[s.table] = list(s.config)
+            elif s.section == "cleaning":
+                cfg.setdefault("cleaning", {}).setdefault(s.table, []).append(s.config)
+            elif s.section == "rules":
+                cfg.setdefault("validation", {}).setdefault("rules", []).append({"table": s.table, **s.config})
+            elif s.section == "generic":
+                cfg.setdefault("validation", {}).setdefault("generic", {}).update(s.config)
+        return cfg
+
+
+def analyse(path: str | Path, name: str | None = None, download_dir: str | Path = "data/downloads") -> Analysis:
+    """Read a file (or a Google Sheets link), detect how it is laid out, profile it
+    and propose text columns, cleaning steps and rules. Nothing is written."""
     sheet_url = str(path) if str(path).startswith("https://docs.google.com/spreadsheets/") else None
     if sheet_url:
         from dqp.connectors.gsheet import GSheetError, fetch
         try:
-            p, fetched = fetch(sheet_url, Path("data/downloads"))
+            p, fetched = fetch(sheet_url, Path(download_dir))
         except GSheetError as exc:
             raise InitError(str(exc)) from None
         title = name or "google_sheet"
@@ -291,134 +339,188 @@ def build_config(path: str | Path, name: str | None = None) -> tuple[str, list[s
         if markers:
             source["na_values"] = markers
 
-    cfg = {"dataset": dataset, "sources": [source]}
-    DatasetConfig.model_validate(cfg)                      # fails loudly if init itself got it wrong
-
-    # load and profile once (from the local copy), to base the suggestions on the real data
-    con = duckdb.connect()
-    loads = load_source(DatasetConfig.model_validate(cfg).sources[0], con)
+    an = Analysis(dataset, source, p, "the Google Sheet" if sheet_url else p.name, notes, {})
+    an.profiles = profile_source(an.source, dataset, notes)
     if sheet_url:                                          # the config names the sheet, not the copy
-        source = {"name": src_name, "type": "gsheet", "url": sheet_url,
-                  **{k: v for k, v in source.items() if k in ("sheets", "na_values")}}
-        cfg = {"dataset": dataset, "sources": [source]}
-    profiles = {l.table: profile_table(con, l.table, ProfileSettings()) for l in loads if l.table}
-    con.close()
-    for l in loads:
-        if l.table:
-            notes.append(f"{l.table}: {l.rows:,} rows x {l.columns} columns")
-
-    text = _render(cfg, profiles, "the Google Sheet" if sheet_url else p.name)
-    DatasetConfig.model_validate(yaml.safe_load(text))     # the written file must load as written
-    return text, notes
+        an.source = {"name": src_name, "type": "gsheet", "url": sheet_url,
+                     **{k: v for k, v in source.items() if k in ("sheets", "na_values")}}
+    an.suggestions, an.final_names = suggest(an.profiles)
+    return an
 
 
-def _render(cfg: dict, profiles: dict, filename: str) -> str:
-    out = [
-        f"# Starter config written by `dqp init` for {filename}.",
-        "# Active settings were detected from the file; check them once.",
-        "# Lines starting with '#' are suggestions: uncomment the ones you agree with.",
-        "# Cleaning steps need a reason in your own words: it goes into the cleaning log.",
-        "",
-        yaml.safe_dump({"dataset": cfg["dataset"], "description": f"TODO: what {filename} contains and where it comes from"},
-                       sort_keys=False, allow_unicode=True).rstrip(),
-        "",
-        "# header_rows count from 0, so header_rows: 3 is the 4th row as Excel shows it."
-        if cfg["sources"][0]["type"] == "excel" else "# Detected from the first lines of the file.",
-        yaml.safe_dump({"sources": cfg["sources"]}, sort_keys=False, allow_unicode=True).rstrip(),
-        "",
-    ]
+def profile_source(source: dict, dataset: str, notes: list[str] | None = None) -> dict:
+    """Load one source block (csv or excel) into memory and profile its tables."""
+    cfg = DatasetConfig.model_validate({"dataset": dataset, "sources": [source]})   # fails loudly if init got it wrong
+    con = duckdb.connect()
+    try:
+        loads = load_source(cfg.sources[0], con)
+        profiles = {l.table: profile_table(con, l.table, ProfileSettings()) for l in loads if l.table}
+    finally:
+        con.close()
+    if notes is not None:
+        notes += [f"{l.table}: {l.rows:,} rows x {l.columns} columns" for l in loads if l.table]
+    return profiles
+
+
+def suggest(profiles: dict, skip: set[tuple[str, str]] | None = None) -> tuple[list[Suggestion], dict]:
+    """Proposals from the profiles. Rules (and later cleaning steps) use the column
+    names as they are after the proposed renaming steps; `skip` holds (table, kind)
+    pairs for renaming steps a person turned down, so the names stay as they are."""
+    skip = skip or set()
+    out: list[Suggestion] = []
 
     # text columns: named like an ID or code, or numbers mixed with letter codes (85123A, C489449)
-    text_sug = {}
     for t, prof in profiles.items():
         cols = [c for c, p in prof["columns_profile"].items()
-                if p["inferred_type"] in ("numeric", "mixed")
-                and (_id_like(c) or _code_values(p))]
+                if p["inferred_type"] in ("numeric", "mixed") and (_id_like(c) or _code_values(p))]
         if cols:
-            text_sug[t.removeprefix("raw_")] = cols
-    if text_sug:
-        out.append("# IDs and codes that look numeric; keep them as text so 001 and C123 are not judged as numbers:")
-        out.append("# text_columns:")
-        for t, cols in text_sug.items():
-            out.append(f"#   {t}: {_flow(cols)}")
-        out.append("")
+            out.append(Suggestion("text_columns", t.removeprefix("raw_"), cols,
+                                  "IDs and codes that look numeric; kept as text so 001 and C123 are not judged as numbers"))
 
-    # cleaning: the rules below use the column names as they are AFTER these steps
-    out.append("# ------------------------------------------------------------------ cleaning")
-    clean_at = len(out)
     final_names: dict[str, dict[str, str]] = {}
     for t, prof in profiles.items():
-        short, steps = t.removeprefix("raw_"), []
-        cols = prof["columns_profile"]
+        short, cols = t.removeprefix("raw_"), prof["columns_profile"]
         names = {c: c for c in cols}
         date_col = prof["main_date_column"]
         if date_col and re.fullmatch(r"column_\d+", date_col) and "date" not in cols:
-            steps.append(f"    - rename: {{{date_col}: date}}           # the date column has no name in the file")
-            names[date_col] = "date"
+            out.append(Suggestion("cleaning", short, {"rename": {date_col: "date"}}, "the date column has no name in the file"))
+            if (short, "rename") not in skip:
+                names[date_col] = "date"
         renamed = [(c, _snake(names[c])) for c in cols if names[c] != _snake(names[c])]
         if renamed:
             c0, n0 = renamed[0]
-            steps.append(f"    - snake_case: true                 # e.g. {c0!r} -> {n0}; {len(renamed)} column(s)")
-            names = {c: _snake(n) for c, n in names.items()}
-        if any(c["whitespace_values"] for c in cols.values()):
-            steps.append("    - trim_whitespace: true            # values with spaces around them")
+            out.append(Suggestion("cleaning", short, {"snake_case": True},
+                                  f"column names to lower_snake_case, e.g. {c0!r} -> {n0}; {len(renamed)} column(s)"))
+            if (short, "snake_case") not in skip:
+                names = {c: _snake(n) for c, n in names.items()}
+        ws = [c for c, p in cols.items() if p["whitespace_values"]]
+        if ws:
+            out.append(Suggestion("cleaning", short, {"trim_whitespace": True},
+                                  f"values with spaces around them, e.g. in {ws[0]!r}"))
         footer_col = _footer_column(prof)
         if footer_col:
             ex = cols[footer_col]["nonconforming_examples"][0]
-            steps += [f"    - drop_rows:                       # e.g. row {ex['row']}: {str(ex['value'])[:40]!r}",
-                      f"        where: \"{_qsql(names[footer_col])} IS NULL\"",
-                      "        reason: \"TODO: why these rows are not data (footer notes?)\""]
+            out.append(Suggestion("cleaning", short,
+                                  {"drop_rows": {"where": f"{_sqlname(names[footer_col])} IS NULL", "reason": ""}},
+                                  f"rows under the data that are not data, e.g. row {ex['row']}: {str(ex['value'])[:40]!r}",
+                                  needs_reason=True))
         if prof["duplicate_rows"]:
-            steps += [f"    - drop_duplicates:                 # {prof['duplicate_rows']} exact duplicate row(s)",
-                      "        reason: \"TODO: why a repeated row is a mistake here\""]
-        if steps:
-            out.append(f"#   {short}:")
-            out += ["#" + s[1:] for s in steps]
+            out.append(Suggestion("cleaning", short, {"drop_duplicates": {"reason": ""}},
+                                  f"{prof['duplicate_rows']} exact duplicate row(s)", needs_reason=True))
         final_names[t] = names
-    if len(out) > clean_at:
-        out.insert(clean_at, "# cleaning:")
-    else:
-        out.append("# No cleaning suggested: no footer rows, duplicates or odd column names found.")
-    out.append("")
 
-    # rules
-    out.append("# ------------------------------------------------------------------ validation")
-    out.append("# Suggested by the current data: keep only rules that must ALWAYS hold.")
-    out.append("# Column names assume the cleaning steps above are used.")
-    out.append("# validation:")
-    gen = []
     for prof in profiles.values():
         d = prof["main_date_column"]
         if d and prof["columns_profile"][d]["date"]["duplicate_dates"] > prof["rows"] * 0.2:
-            gen.append("#     no_duplicate_dates: off      # many rows per date: looks like transactions")
-    if gen:
-        out += ["#   generic:"] + sorted(set(gen))
-    rules_at = len(out)
+            out.append(Suggestion("generic", "", {"no_duplicate_dates": "off"},
+                                  "many rows per date: looks like transactions, so a repeated date is normal"))
+            break
+
     for t, prof in profiles.items():
         short, cols, names = t.removeprefix("raw_"), prof["columns_profile"], final_names[t]
         d = prof["main_date_column"]
         if d:
             info = cols[d]["date"]
             if not info["duplicate_dates"]:
-                out += [f"#     - table: {short}", f"#       unique: [{_q(names[d])}]"]
+                out.append(Suggestion("rules", short, {"unique": [names[d]]}, f"one row per {names[d]}"))
             if info["frequency"] not in ("unknown", "irregular") and not info.get("missing_periods"):
-                out += [f"#     - table: {short}",
-                        f"#       date_coverage: {{column: {_q(names[d])}, start: \"{info['min']}\", no_gaps: true}}"]
+                out.append(Suggestion("rules", short,
+                                      {"date_coverage": {"column": names[d], "start": str(info["min"]), "no_gaps": True}},
+                                      f"no missing {info['frequency']} periods from {info['min']} on"))
         nonneg = [c for c, p in cols.items() if p.get("numeric") and p["numeric"]["count"]
                   and p["numeric"]["min"] >= 0 and not _id_like(c)][:3]
         for c in nonneg:
-            out += [f"#     - table: {short}", f"#       expr: \"{_qsql(names[c])} >= 0\""]
+            out.append(Suggestion("rules", short, {"expr": f"{_sqlname(names[c])} >= 0"}, f"{names[c]} is never negative"))
         # never empty today, and nothing unreadable (unreadable values are empty after typing)
         full = [names[c] for c, p in cols.items() if p["nulls"] == 0 and p["nonconforming"] == 0
                 and p["inferred_type"] != "empty" and not (p["inferred_type"] in ("numeric", "mixed")
                 and (_id_like(c) or _code_values(p)))][:3]
         if full:
-            out += [f"#     - table: {short}", f"#       not_null: {_flow(full)}"]
-    if len(out) > rules_at:
-        out.insert(rules_at, "#   rules:")
+            out.append(Suggestion("rules", short, {"not_null": full}, f"{', '.join(full)}: never empty"))
+    return out, final_names
+
+
+# ---------------------------------------------------------------- config text
+
+def build_config(path: str | Path, name: str | None = None) -> tuple[str, list[str]]:
+    """Return (config text, notes). The config is validated and loaded once before
+    it is returned, so the person gets a file that runs."""
+    an = analyse(path, name)
+    text = _render(an)
+    DatasetConfig.model_validate(yaml.safe_load(text))     # the written file must load as written
+    return text, an.notes
+
+
+def _render(an: Analysis) -> str:
+    filename = an.label
+    out = [
+        f"# Starter config written by `dqp init` for {filename}.",
+        "# Active settings were detected from the file; check them once.",
+        "# Lines starting with '#' are suggestions: uncomment the ones you agree with.",
+        "# Cleaning steps need a reason in your own words: it goes into the cleaning log.",
+        "",
+        yaml.safe_dump({"dataset": an.dataset, "description": f"TODO: what {filename} contains and where it comes from"},
+                       sort_keys=False, allow_unicode=True).rstrip(),
+        "",
+        "# header_rows count from 0, so header_rows: 3 is the 4th row as Excel shows it."
+        if an.source["type"] != "csv" else "# Detected from the first lines of the file.",
+        yaml.safe_dump({"sources": [an.source]}, sort_keys=False, allow_unicode=True).rstrip(),
+        "",
+    ]
+    by = lambda sec: [s for s in an.suggestions if s.section == sec]
+
+    if by("text_columns"):
+        out.append("# IDs and codes that look numeric; keep them as text so 001 and C123 are not judged as numbers:")
+        out.append("# text_columns:")
+        out += [f"#   {s.table}: {_flow(s.config)}" for s in by("text_columns")]
+        out.append("")
+
+    out.append("# ------------------------------------------------------------------ cleaning")
+    steps = by("cleaning")
+    if steps:
+        out.append("# cleaning:")
+        for table in dict.fromkeys(s.table for s in steps):
+            out.append(f"#   {table}:")
+            for s in (s for s in steps if s.table == table):
+                out += ["#" + line[1:] for line in _step_lines(s)]
+    else:
+        out.append("# No cleaning suggested: no footer rows, duplicates or odd column names found.")
+    out.append("")
+
+    out.append("# ------------------------------------------------------------------ validation")
+    out.append("# Suggested by the current data: keep only rules that must ALWAYS hold.")
+    out.append("# Column names assume the cleaning steps above are used.")
+    out.append("# validation:")
+    if by("generic"):
+        out.append("#   generic:")
+        for s in by("generic"):
+            (k, v), = s.config.items()
+            out.append(f"#     {k}: {v}      # {s.note.split(':')[0]}")
+    if by("rules"):
+        out.append("#   rules:")
+        for s in by("rules"):
+            (k, v), = s.config.items()
+            out += [f"#     - table: {s.table}", f"#       {k}: {_inline(v)}"]
     out.append("")
     out.append("summary:\n  provider: auto            # an LLM if an API key is set, else the built-in template")
     return "\n".join(out) + "\n"
+
+
+def _step_lines(s: Suggestion) -> list[str]:
+    (kind, v), = s.config.items()
+    if isinstance(v, dict) and kind != "rename":
+        lines = [f"    - {kind}:".ljust(39) + f"# {s.note}"]
+        for k, x in v.items():
+            if k == "reason" and not x:
+                x = "TODO: why these rows are not data (footer notes?)" if kind == "drop_rows" \
+                    else "TODO: why a repeated row is a mistake here"
+            lines.append(f"        {k}: {_inline(x)}")
+        return lines
+    return [f"    - {kind}: {_inline(v)}".ljust(39) + f"# {s.note}"]
+
+
+def _inline(v) -> str:
+    return yaml.safe_dump(v, default_flow_style=True, allow_unicode=True, width=10**6).strip().removesuffix("\n...")
 
 
 def _footer_column(prof: dict) -> str | None:
@@ -454,8 +556,8 @@ def _q(name: str) -> str:
     return name if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) else yaml.safe_dump(name).strip().removesuffix("\n...")
 
 
-def _qsql(name: str) -> str:
-    return name if re.fullmatch(r"[a-z_][a-z0-9_]*", name) else '\\"' + name.replace('"', '""') + '\\"'
+def _sqlname(name: str) -> str:
+    return name if re.fullmatch(r"[a-z_][a-z0-9_]*", name) else '"' + name.replace('"', '""') + '"'
 
 
 def _flow(items: list[str]) -> str:

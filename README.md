@@ -8,6 +8,7 @@ Give it any tabular dataset and it profiles, validates, cleans, documents and
 summarises it, with an AI summary layer that only works on validated, computed numbers.
 
 > **Status:** all six layers run on three datasets, automatically on every push via GitHub Actions. Sources: CSV, Excel and Google Sheets.
+> Use it from the command line or step by step in the browser (`dqp gui`).
 > The table below is kept honest: nothing is marked done before it runs and is tested.
 
 | Layer | What it does | Status |
@@ -19,8 +20,9 @@ summarises it, with an AI summary layer that only works on validated, computed n
 | 4. Cleaning | raw → staging → mart, every step logged with a reason, removed rows kept, gaps documented | ✅ done |
 | 5. AI summary | plain-language report; the LLM never types a number, a checker enforces it; template fallback | ✅ done (LLM path tested with fake clients, see below) |
 | 6. Output | HTML report, GitHub Actions (tests on Python 3.10 and 3.12, pipeline run, Pages deploy) | ✅ done |
+| GUI | step-by-step browser interface over the same pipeline (`dqp gui`) | ✅ done |
 
-176 tests cover the layers (`pytest`).
+182 tests cover the layers and the GUI (`pytest`).
 
 ## Example: one million real transactions
 
@@ -116,7 +118,39 @@ cleaning: 10 change(s), 2 row(s) moved to rejected_ tables
   which held only January. The mart now keeps only complete quarters, which also
   removed 1971Q4 (Nareit starts in December 1971), and a rule guards it.
 
-## Quick start: check and clean your own file
+## Use it in the browser
+
+```bash
+pip install "dqp[gui] @ git+https://github.com/Behindokht/dq-pipeline"
+dqp gui
+```
+
+A page opens in the browser and walks through five steps. It runs on your own computer: the file is
+not uploaded anywhere (a Google Sheet is downloaded from Google, nothing more).
+
+1. **Data**: upload a CSV or Excel file, paste a Google Sheets link, or try the example (four weeks
+   of orders from a small shop, with a note under the data, double scans, IDs that look like numbers
+   and stray spaces).
+2. **Layout**: what was detected (delimiter, header rows, sheets), a preview of every table and what
+   stands out. If the header was guessed wrong, change it and read again.
+3. **Cleaning**: the suggested steps as tick boxes. A step that sets rows aside needs a reason in
+   your own words before you can go on; it goes into the cleaning log. Nothing is deleted: set-aside
+   rows go to a `rejected_` table.
+4. **Rules**: suggested rules to keep or untick, and a builder (column + never empty / unique /
+   between / one of / SQL condition, as a failure or only a warning).
+5. **Results**: the verdict, checks before and after cleaning, what needs a look, the summary and
+   the full report. Download the cleaned data (Excel or CSV), the report, and the settings as a
+   YAML file: `dqp run` on that file gives the same result, so the checks can run on a schedule.
+
+| Cleaning: suggestions and reasons | Results |
+|---|---|
+| ![Cleaning step](docs/gui/cleaning.png) | ![Results step](docs/gui/results.png) |
+
+The GUI does no checking of its own. It builds the same config `dqp init` writes and calls the same
+functions as the command line, so the two cannot disagree (a test runs the downloaded settings with
+`dqp run` and compares). Built with Streamlit, an optional extra: the command line works without it.
+
+## Quick start: check and clean your own file (command line)
 
 ```bash
 pip install git+https://github.com/Behindokht/dq-pipeline
@@ -418,6 +452,9 @@ Found by testing on purpose, kept here so nothing is overclaimed:
 - **`snake_case`** drops symbols, so `Crude oil, WTI ($/bbl)` becomes `crude_oil_wti_bbl`;
   the original name stays in the lineage in `cleaning.json`.
 - **The live LLM APIs** have not been called from this repo yet (see the summary section).
+- **The GUI** handles one file or one Google Sheet per dataset, and does not build marts (analysis
+  tables written in SQL); for those, edit the downloaded YAML. It is tested headless with Streamlit's
+  AppTest and by hand in Chromium, not yet in Safari or Firefox.
 - **SQL in `sql: >` blocks** is folded onto one line by YAML, so a `--` comment would swallow the rest
   of the query; the config rejects that with a message. Use `#` comments outside the SQL.
 

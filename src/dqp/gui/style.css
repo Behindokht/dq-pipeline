@@ -1,0 +1,60 @@
+/* Swiss style, matching the HTML report: black on white, one red, a strict grid,
+   Inter for text, Inter Tight for headings, IBM Plex Mono for numbers and code.
+   `dqp gui` starts Streamlit with its light theme, which these colours are made for. */
+:root { --ink: #111111; --paper: #ffffff; --grey: #6b6b6b; --line: #d9d9d9; --soft: #f4f4f4;
+        --red: #e30613; --amber: #b26b00; --green: #1d7a3a; }
+.stApp, .stApp p, .stApp label, .stApp input, .stApp textarea, .stApp li, .stApp td, .stApp th,
+.stApp button p, .stMarkdown { font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
+.stApp h1, .stApp h2, .stApp h3, .stApp h4 { font-family: "Inter Tight", Inter, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 700; letter-spacing: -0.02em; }
+.stApp h2 { font-size: 2.1rem; margin-top: .5rem; }
+.stApp h4 { font-size: 1rem; margin-top: 1rem; }
+.stApp h3 { font-size: 1.15rem; margin-top: 1.4rem; border-top: 1px solid var(--ink); padding-top: .6rem; }
+.stApp code, .stApp pre { font-family: "IBM Plex Mono", Menlo, monospace !important; }
+.block-container { max-width: 1100px; padding-top: 2rem; }
+button, .stTextInput input, .stTextArea textarea, [data-baseweb="select"] > div { border-radius: 0 !important; }
+header[data-testid="stHeader"] { background: transparent; }
+[data-testid="stHeaderActionElements"] { display: none; }
+.dqp-verdict, .dqp-t, .dqp-hl, .dqp-custom, .dqp-why { font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
+
+.dqp-head { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 1rem;
+  border-bottom: 3px solid var(--ink); padding-bottom: .6rem; margin-bottom: 1.2rem; }
+.dqp-title { font-family: "Inter Tight", Inter, sans-serif; font-weight: 700; font-size: 1.05rem;
+  letter-spacing: -0.01em; }
+.dqp-steps { display: flex; gap: 1.4rem; list-style: none; margin: 0; padding: 0; flex-wrap: wrap; }
+.dqp-steps li { font-size: .85rem; color: var(--grey); margin: 0; }
+.dqp-steps li span { font-family: "IBM Plex Mono", monospace; margin-right: .4rem; }
+.dqp-steps li.done { color: var(--ink); }
+.dqp-steps li.on { color: var(--red); font-weight: 600; }
+.dqp-rule { border-top: 1px solid var(--line); margin: 2rem 0 .8rem; }
+
+.dqp-note { font-family: "IBM Plex Mono", monospace; font-size: .82rem; color: var(--grey);
+  border-left: 2px solid var(--line); padding-left: .6rem; margin: .15rem 0; }
+.dqp-meta { font-family: "IBM Plex Mono", monospace; font-size: .82rem; color: var(--grey); margin-bottom: .5rem; }
+.dqp-why { color: var(--grey); font-size: .85rem; margin: -.6rem 0 .6rem 1.9rem; }
+.dqp-hl { padding: .35rem 0 .35rem .7rem; border-left: 3px solid var(--line); margin: .2rem 0; font-size: .92rem; }
+.dqp-hl.attention { border-left-color: var(--red); }
+.dqp-hl.info { border-left-color: var(--grey); }
+.dqp-custom { padding: .45rem 0 .45rem .7rem; border-left: 3px solid var(--ink); font-size: .92rem; }
+
+.dqp-verdict { border-top: 6px solid var(--ink); padding: .8rem 0 1rem; margin: 1rem 0; }
+.dqp-verdict .big { font-family: "Inter Tight", Inter, sans-serif; font-weight: 700; font-size: 3rem;
+  letter-spacing: -0.03em; line-height: 1.05; }
+.dqp-verdict.failed { border-top-color: var(--red); }
+.dqp-verdict.failed .big { color: var(--red); }
+.dqp-verdict.passed_with_warnings { border-top-color: var(--amber); }
+.dqp-verdict.passed .big { color: var(--ink); }
+
+.dqp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 2rem; align-items: start; }
+.dqp-t { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.dqp-t th, .dqp-t td { border: 0; white-space: nowrap; vertical-align: bottom; }
+.dqp-t th { text-align: left; font-weight: 600; border-bottom: 2px solid var(--ink); padding: .3rem .4rem .3rem 0; }
+.dqp-t td { border-bottom: 1px solid var(--line); padding: .3rem .4rem .3rem 0; }
+.dqp-t td.n { text-align: right; font-family: "IBM Plex Mono", monospace; }
+.dqp-t th.n { text-align: right; }
+
+@media (max-width: 640px) {
+  .dqp-head { grid-template-columns: 1fr; }
+  .dqp-steps { gap: .8rem; }
+  .dqp-verdict .big { font-size: 2.2rem; }
+}

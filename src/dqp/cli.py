@@ -1,4 +1,5 @@
 """Command line entry points:
+    dqp gui                              open the step-by-step interface in the browser
     dqp init data/sales.xlsx             write a starter config for a data file
     dqp run configs/copper.yaml          run the pipeline
     dqp site --out site outputs/copper   build the GitHub Pages site from finished runs
@@ -49,7 +50,13 @@ def main(argv: list[str] | None = None) -> int:
     init_cmd.add_argument("--name", default=None, help="dataset name (default: from the file name)")
     init_cmd.add_argument("--out", default=None, help="config file to write (default: configs/<name>.yaml)")
     init_cmd.add_argument("--force", action="store_true", help="overwrite an existing config")
+    gui_cmd = sub.add_parser("gui", help="open the step-by-step interface in the browser")
+    gui_cmd.add_argument("--port", type=int, default=None, help="port to serve on (default 8501)")
+    gui_cmd.add_argument("--no-browser", action="store_true", help="do not open a browser window")
     args = parser.parse_args(argv)
+    if args.command == "gui":
+        from dqp.gui import launch
+        return launch(args.port, not args.no_browser)
     if args.command == "init":
         from dqp.init import InitError, write_config
         try:

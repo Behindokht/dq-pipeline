@@ -21,13 +21,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "streamlit>=1.46"]
+gui = ["streamlit>=1.46"]
 
 [project.scripts]
 dqp = "dqp.cli:main"
 
 [tool.setuptools.package-data]
-dqp = ["report/*.css"]
+dqp = ["report/*.css", "gui/*.css", "gui/examples/*.csv"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
