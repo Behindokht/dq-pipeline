@@ -138,6 +138,8 @@ def _verdict(log: dict) -> str:
 
 
 def _summary(summary: dict) -> str:
+    # the section already has the label "Summary": drop the text's own first heading
+    body = md_to_html(re.sub(r"\A\s*## Summary\s*\n", "", summary["text"]))
     by = (f"Written by an LLM ({e(summary['model'])}), checked against the computed facts"
           if summary["source"] == "llm" else "Written by the built-in template")
     return f"""
@@ -146,7 +148,7 @@ def _summary(summary: dict) -> str:
   <div class="summary">
     <div class="byline"><span>{by}.</span><span>{len(summary['facts_used'])} facts used; every number comes
       from <code>facts.json</code>, none was typed by the writer.</span></div>
-    {md_to_html(re.sub(r'\A\s*## Summary\s*\n', '', summary['text']))}
+    {body}
   </div>
 </section>"""
 
