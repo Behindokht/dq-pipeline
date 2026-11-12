@@ -86,7 +86,7 @@ def _fmt_example(ex: dict) -> str:
 
 def _header(config, log: dict) -> str:
     loads = [l for l in log["loads"] if l["table"]]
-    files = sorted({l["location"].split("/")[-1] for l in loads})
+    files = sorted({l["location"] if l["source_type"] == "gsheet" else l["location"].split("/")[-1] for l in loads})
     started = log["started_at"].replace("T", " ").replace("+00:00", " UTC")
     desc = f'<p class="muted" style="max-width:70ch">{e(" ".join(config.description.split()))}</p>' \
         if config.description else ""
@@ -344,9 +344,15 @@ def _columns(stg_profiles: dict, show_values: bool) -> str:
 </section>"""
 
 
+def _source_cell(load: dict) -> str:
+    if load.get("source_type") == "gsheet":
+        return f'<a href="{e(load["location"])}">Google Sheet</a>'
+    return e(load["location"].split("/")[-1])
+
+
 def _lineage(log: dict) -> str:
     rows = "".join(
-        f'<tr><td class="mono small">{e(l["table"])}</td><td class="small">{e(l["location"].split("/")[-1])}'
+        f'<tr><td class="mono small">{e(l["table"])}</td><td class="small">{_source_cell(l)}'
         f'{(" · sheet " + e(l["sheet"])) if l["sheet"] else ""}</td><td class="num">{l["rows"]:,}</td>'
         f'<td class="mono small">{e((l["sha256"] or "")[:12])}</td><td class="small muted">{e("; ".join(l["notes"]))}</td></tr>'
         for l in log["loads"] if l["table"])

@@ -1,0 +1,28 @@
+# Smoke test for the Google Sheets connector, run by CI on every push.
+# The sheet is Google's own public example from the Sheets API documentation
+# (fictional students). It is not published on the site; it only proves that a
+# public sheet can be downloaded and checked end to end.
+dataset: google_sample_sheet
+description: Google's public example spreadsheet from the Sheets API documentation (fictional data)
+
+sources:
+  - name: sample
+    type: gsheet
+    url: https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit
+
+cleaning:
+  sample__class_data:
+    - snake_case: true
+
+validation:
+  rules:
+    - table: sample__class_data
+      name: the example sheet still has its 30 students
+      row_count: {min: 30}
+    - table: sample__class_data
+      not_null: [student_name, gender, major]
+    - table: sample__class_data
+      allowed: {column: gender, values: [Female, Male]}
+
+summary:
+  provider: none

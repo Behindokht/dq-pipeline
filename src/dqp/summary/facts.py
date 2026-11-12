@@ -82,7 +82,8 @@ def build_facts(con, config, log: dict, checks: dict, cleaning: dict, coverage: 
     loaded = [l for l in log["loads"] if l["table"]]
     fp.add("dataset.tables", len(loaded), "number", "tables loaded from the sources")
     fp.add("dataset.raw_rows", sum(l["rows"] for l in loaded), "number", "rows loaded in total")
-    fp.add("dataset.sources", ", ".join(sorted({l["location"].split("/")[-1] for l in loaded})), "text",
+    fp.add("dataset.sources", ", ".join(sorted({"a Google Sheet" if l["source_type"] == "gsheet"
+                                                else l["location"].split("/")[-1] for l in loaded})), "text",
            "source files")
 
     for stage, label in (("raw", "arrival"), ("staging", "final")):

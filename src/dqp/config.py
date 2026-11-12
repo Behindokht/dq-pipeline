@@ -96,7 +96,28 @@ class ExcelSource(_Strict):
         return [SheetSpec(sheet=s) if isinstance(s, str) else s for s in self.sheets]
 
 
-Source = Annotated[Union[CsvSource, ExcelSource], Field(discriminator="type")]
+GSHEET_URL = r"^https://docs\.google\.com/spreadsheets/d/"
+
+
+class GSheetSource(_Strict):
+    """A Google Sheet shared as 'Anyone with the link can view' (or published to the web).
+    The whole workbook is downloaded as .xlsx on every run, because a sheet is live data,
+    and then read exactly like an Excel source: every tab can become a table."""
+    type: Literal["gsheet"]
+    name: str = Field(pattern=NAME_PATTERN, description="Prefix for the tables raw_<name>__<tab>.")
+    url: str = Field(pattern=GSHEET_URL, description="The sheet's link, as copied from the browser.")
+    sheets: Union[Literal["all"], list[Union[str, SheetSpec]]] = "all"
+    header_rows: HeaderRows = 0
+    na_values: list[str] = Field(default_factory=list)
+    cache_dir: Path = Field(Path("data/downloads"), description="Where the downloaded copy is kept.")
+
+    @field_validator("header_rows")
+    @classmethod
+    def _check_rows(cls, v):
+        return _as_header_list(v)
+
+
+Source = Annotated[Union[CsvSource, ExcelSource, GSheetSource], Field(discriminator="type")]
 
 
 class ProfilingConfig(_Strict):

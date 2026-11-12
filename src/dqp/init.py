@@ -150,6 +150,8 @@ def detect_header_rows(grid: pd.DataFrame) -> tuple[list[int] | None, str]:
     mostly text; rows above that are added while they are text over several columns
     (group labels of a multi-row header). Single-cell rows are titles and stop the search."""
     kinds = [[_kind(v) for v in row] for row in grid.itertuples(index=False)]
+    lengths = [[len(str(v).strip()) for v, k in zip(row, kr) if k != "empty"]
+               for row, kr in zip(grid.itertuples(index=False), kinds)]
     filled = [sum(k != "empty" for k in r) for r in kinds]
     width = max(filled, default=0)
     if width == 0:
@@ -168,7 +170,7 @@ def detect_header_rows(grid: pd.DataFrame) -> tuple[list[int] | None, str]:
     start = next((i for i in range(n) if data_like(i)
                   and sum(data_like(j) for j in range(i + 1, min(i + 4, n))) >= min(2, n - i - 1)), None)
     if start is None:
-        return None, "no block of numeric or dated rows: looks like notes, not a table"
+        return _text_table(filled, width, lengths)
     # the first data rows of a series are often sparse (a level but no return yet):
     # walk up over rows that are mostly numbers or dates, however few cells they fill
     while start > 0 and (filled[start - 1] == 0 or typed_share(start - 1) >= 0.5):
@@ -199,6 +201,27 @@ def detect_header_rows(grid: pd.DataFrame) -> tuple[list[int] | None, str]:
     if rows[0] > 0:
         note += f", {rows[0]} line(s) above it skipped"
     return rows, note
+
+
+def _text_table(filled: list[int], width: int, lengths: list[list[int]]) -> tuple[list[int] | None, str]:
+    """Fallback for tables that are mostly text (customer lists, deal stages, owners):
+    the header is the first row of at least 2 filled cells that is followed by rows
+    filled about as wide. Notes are not a table: one or two cells per line, or long
+    sentences rather than short labels, IDs and names."""
+    import statistics
+    full = max(2, int(0.6 * width + 0.5))
+    n = len(filled)
+
+    def short(i):
+        return bool(lengths[i]) and statistics.median(lengths[i]) <= 40
+    for r in range(n):
+        if filled[r] < full or not short(r):
+            continue
+        below = [filled[j] >= full and short(j) for j in range(r + 1, min(r + 4, n))]
+        if len(below) >= 2 and sum(below) >= 2:
+            note = f"text table, header assumed on row {r + 1}"
+            return [r], note + (f", {r} line(s) above it skipped" if r else "")
+    return None, "no block of numeric or dated rows and no text table: looks like notes"
 
 
 def detect_excel(path: Path) -> tuple[list[dict], list[str]]:
@@ -234,15 +257,25 @@ def _engine():
 def build_config(path: str | Path, name: str | None = None) -> tuple[str, list[str]]:
     """Return (config text, notes). The config is validated and loaded once before
     it is returned, so the person gets a file that runs."""
-    p = Path(path)
-    if not p.is_file():
-        raise InitError(f"file not found: {p}")
+    sheet_url = str(path) if str(path).startswith("https://docs.google.com/spreadsheets/") else None
+    if sheet_url:
+        from dqp.connectors.gsheet import GSheetError, fetch
+        try:
+            p, fetched = fetch(sheet_url, Path("data/downloads"))
+        except GSheetError as exc:
+            raise InitError(str(exc)) from None
+        title = name or "google_sheet"
+    else:
+        p, fetched = Path(path), []
+        if not p.is_file():
+            raise InitError(f"file not found: {p}")
+        title = None
     ftype = detect_type(p)
-    dataset = name or slugify(re.sub(r"(\.[A-Za-z0-9]+)+$", "", p.name)) or "dataset"
+    dataset = name or title or slugify(re.sub(r"(\.[A-Za-z0-9]+)+$", "", p.name)) or "dataset"
     if not re.match(r"^[a-z]", dataset):
         dataset = "d_" + dataset
     src_name = dataset[:40]
-    notes: list[str] = [f"{p.name}: read as {ftype}"]
+    notes: list[str] = fetched + [f"{p.name}: read as {ftype}"]
 
     if ftype == "csv":
         settings = detect_csv(p)
@@ -253,7 +286,7 @@ def build_config(path: str | Path, name: str | None = None) -> tuple[str, list[s
         specs, sheet_notes = detect_excel(p)
         notes += sheet_notes
         markers = sorted({m for s in specs for m in s["na_values"]})
-        source = {"name": src_name, "type": "excel", "path": str(path),
+        source = {"name": src_name, "type": "excel", "path": str(p if sheet_url else path),
                   "sheets": [{"sheet": s["sheet"], "header_rows": s["header_rows"]} for s in specs]}
         if markers:
             source["na_values"] = markers
@@ -261,16 +294,20 @@ def build_config(path: str | Path, name: str | None = None) -> tuple[str, list[s
     cfg = {"dataset": dataset, "sources": [source]}
     DatasetConfig.model_validate(cfg)                      # fails loudly if init itself got it wrong
 
-    # load and profile once, to base the suggestions on the real data
+    # load and profile once (from the local copy), to base the suggestions on the real data
     con = duckdb.connect()
     loads = load_source(DatasetConfig.model_validate(cfg).sources[0], con)
+    if sheet_url:                                          # the config names the sheet, not the copy
+        source = {"name": src_name, "type": "gsheet", "url": sheet_url,
+                  **{k: v for k, v in source.items() if k in ("sheets", "na_values")}}
+        cfg = {"dataset": dataset, "sources": [source]}
     profiles = {l.table: profile_table(con, l.table, ProfileSettings()) for l in loads if l.table}
     con.close()
     for l in loads:
         if l.table:
             notes.append(f"{l.table}: {l.rows:,} rows x {l.columns} columns")
 
-    text = _render(cfg, profiles, p.name)
+    text = _render(cfg, profiles, "the Google Sheet" if sheet_url else p.name)
     DatasetConfig.model_validate(yaml.safe_load(text))     # the written file must load as written
     return text, notes
 

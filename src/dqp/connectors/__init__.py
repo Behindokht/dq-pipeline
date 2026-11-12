@@ -13,10 +13,12 @@ import duckdb
 from dqp.connectors.base import LoadResult
 from dqp.connectors.csv_file import load_csv
 from dqp.connectors.excel_file import load_excel
+from dqp.connectors.gsheet import load_gsheet
 
 CONNECTORS: dict[str, Callable[..., list[LoadResult]]] = {
     "csv": load_csv,
     "excel": load_excel,
+    "gsheet": load_gsheet,
 }
 
 

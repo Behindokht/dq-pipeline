@@ -65,6 +65,12 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: dqp run --strict configs/copper.yaml configs/online_retail.yaml
+      - name: Google Sheets connector, live (Google's public example sheet)
+        run: |
+          dqp run --strict configs/smoke/google_sample_sheet.yaml
+          dqp init "https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit" \
+            --name sheet_from_init --out smoke_init.yaml
+          dqp run --strict smoke_init.yaml
       - name: Build the site
         # snapshots/ holds quality-only reports of local runs whose data is licensed
         run: dqp site --out site --repo-url "${{ github.server_url }}/${{ github.repository }}" outputs/copper outputs/online_retail snapshots/thesis_assets
