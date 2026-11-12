@@ -12,3 +12,6 @@ outputs/*
 
 # Thesis data includes licensed sources (Artprice, Nareit): never commit it.
 data/thesis/
+
+# Built by `dqp site` (in CI it is published to GitHub Pages)
+site/

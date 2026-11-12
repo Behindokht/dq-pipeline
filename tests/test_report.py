@@ -97,3 +97,26 @@ def test_markdown_subset():
     out = md_to_html("## Head\n\nSome **bold** and `code_1`.\n\n- one <b>\n- two")
     assert "<h3>Head</h3>" in out and "<strong>bold</strong>" in out and "<code>code_1</code>" in out
     assert "<li>one &lt;b&gt;</li>" in out and out.count("<li>") == 2
+
+
+# ---------- the static site ----------
+
+def test_site_lists_each_run_and_copies_its_report(tmp_path):
+    from dqp.cli import main
+    log = run(setup(tmp_path))
+    out_dir = Path(log["db_path"]).parent
+    site = tmp_path / "site"
+    assert main(["site", "--out", str(site), "--repo-url", "https://github.com/x/y", str(out_dir)]) == 0
+    index = (site / "index.html").read_text()
+    assert "<title>dq-pipeline Reports</title>" in index
+    assert 'href="prices/"' in index and "https://github.com/x/y" in index
+    assert "on arrival" in index and "after cleaning" in index
+    assert (site / "prices" / "index.html").read_text() == (out_dir / "report.html").read_text()
+    assert (site / ".nojekyll").exists()
+
+
+def test_site_refuses_a_folder_without_a_finished_run(tmp_path, capsys):
+    from dqp.cli import main
+    (tmp_path / "empty").mkdir()
+    assert main(["site", "--out", str(tmp_path / "s"), str(tmp_path / "empty")]) == 1
+    assert "no finished run" in capsys.readouterr().err

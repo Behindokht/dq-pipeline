@@ -1,4 +1,7 @@
-"""Command line entry point: `dqp run configs/copper.yaml`."""
+"""Command line entry points:
+    dqp run configs/copper.yaml          run the pipeline
+    dqp site --out site outputs/copper   build the GitHub Pages site from finished runs
+"""
 
 from __future__ import annotations
 
@@ -18,7 +21,20 @@ def main(argv: list[str] | None = None) -> int:
     run_cmd.add_argument("--strict", action="store_true",
                          help="exit with code 2 if any check FAILs or ERRORs (for CI)")
     run_cmd.add_argument("-v", "--verbose", action="store_true", help="also print profile highlights")
+    site_cmd = sub.add_parser("site", help="build the static site (GitHub Pages) from finished runs")
+    site_cmd.add_argument("runs", nargs="+", help="output folders of finished runs, e.g. outputs/copper")
+    site_cmd.add_argument("--out", default="site", help="folder to write the site to (default: site)")
+    site_cmd.add_argument("--repo-url", default=None, help="link to the code, shown on the index page")
     args = parser.parse_args(argv)
+    if args.command == "site":
+        from dqp.site import build_site
+        try:
+            out = build_site(args.out, args.runs, args.repo_url)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"[failed] {exc}", file=sys.stderr)
+            return 1
+        print(f"site written to {out}/ ({len(args.runs)} report(s))")
+        return 0
     invalid = 0
 
     failed = 0

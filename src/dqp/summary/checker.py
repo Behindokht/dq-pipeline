@@ -102,7 +102,9 @@ def check_draft(draft: str, facts: FactPack, identifiers: set[str] | None = None
 def _role_violations(draft: str, facts: FactPack) -> list[str]:
     """Headline numbers (key.*) must appear in a sentence that names their role."""
     out = []
-    marked = PLACEHOLDER.sub(lambda m: f"\x00{m.group(1).replace('.', '\x01')}\x00", draft)
+    def mark(m: re.Match) -> str:   # placeholders contain dots; hide them from the sentence split
+        return "\x00" + m.group(1).replace(".", "\x01") + "\x00"
+    marked = PLACEHOLDER.sub(mark, draft)
     for sentence in re.split(r"(?<=[.!?;])\s+|\n", marked):
         for raw in re.findall(r"\x00([^\x00]+)\x00", sentence):
             fid = raw.replace("\x01", ".")

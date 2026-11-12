@@ -1,9 +1,13 @@
 # dq-pipeline
 
+[![pipeline](https://github.com/Behindokht/dq-pipeline/actions/workflows/pipeline.yml/badge.svg)](https://github.com/Behindokht/dq-pipeline/actions/workflows/pipeline.yml)
+
+**Live reports:** https://behindokht.github.io/dq-pipeline/
+
 Give it any tabular dataset and it profiles, validates, cleans, documents and
 summarises it, with an AI summary layer that only works on validated, computed numbers.
 
-> **Status: work in progress.** Layers 1–5 and the HTML report are built; GitHub Actions and Pages are next.
+> **Status: work in progress.** All six layers run, automatically on every push via GitHub Actions. Next: more datasets (payments, CRM) and source types.
 > The table below is kept honest: nothing is marked done before it runs and is tested.
 
 | Layer | What it does | Status |
@@ -14,9 +18,9 @@ summarises it, with an AI summary layer that only works on validated, computed n
 | 3. Validation | generic checks + rules from config, pass / warn / fail with failing rows | ✅ done |
 | 4. Cleaning | raw → staging → mart, every step logged with a reason, removed rows kept, gaps documented | ✅ done |
 | 5. AI summary | plain-language report; the LLM never types a number, a checker enforces it; template fallback | ✅ done (LLM path tested with fake clients, see below) |
-| 6. Output | HTML report ✅ · GitHub Actions and Pages ⏳ | 🟡 in progress |
+| 6. Output | HTML report, GitHub Actions (tests on Python 3.10 and 3.12, pipeline run, Pages deploy) | ✅ done |
 
-141 tests cover the layers (`pytest`).
+143 tests cover the layers (`pytest`).
 
 ## Example: what profiling found in my thesis data
 
@@ -100,6 +104,19 @@ JavaScript library, charts drawn as inline SVG), in light and dark mode and read
 `report.show_values: false` turns it into a quality-only report (statuses, counts, row numbers,
 dates and reasons, no data values). The thesis config uses this because Artprice and Nareit
 data is licensed.
+
+## Automation
+
+`.github/workflows/pipeline.yml` runs on every push, every Monday and on demand:
+
+1. **tests:** the full test suite on Python 3.10 and 3.12
+2. **run:** `dqp run --strict configs/copper.yaml` (a FAIL stops the build), then
+   `dqp site` builds the site from the run's own output files
+3. **deploy:** publishes the site to GitHub Pages
+
+Add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` as a repository secret to have the summary written
+by an LLM; without one the template writes it. The thesis data is licensed and not in the repo,
+so it runs only locally.
 
 ## Example: the summary
 

@@ -1,0 +1,87 @@
+# Runs on every push and pull request, every Monday, and on demand:
+#   1. tests      the full pytest suite, on Python 3.10 and 3.12
+#   2. run        the pipeline on the public datasets (--strict: a FAIL stops the build),
+#                 then builds the site from the run's own output files
+#   3. deploy     publishes the site to GitHub Pages (main branch only)
+#
+# Optional: add ANTHROPIC_API_KEY (or OPENAI_API_KEY) as a repository secret to have the
+# summary written by an LLM; without it the built-in template writes it. Either way the
+# number checker runs.
+# Thesis data is licensed and not in the repo, so it is not run here.
+
+name: pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"     # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]   # oldest supported and current
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  run:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e .
+      - name: Run the pipeline on the public datasets
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: dqp run --strict configs/copper.yaml
+      - name: Build the site
+        run: dqp site --out site --repo-url "${{ github.server_url }}/${{ github.repository }}" outputs/copper
+      - name: Keep the run's output files
+        uses: actions/upload-artifact@v4
+        with:
+          name: outputs
+          path: |
+            outputs/
+            !outputs/**/*.duckdb
+          retention-days: 30
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: run
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
