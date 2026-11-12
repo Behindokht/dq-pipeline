@@ -20,7 +20,7 @@ summarises it, with an AI summary layer that only works on validated, computed n
 | 5. AI summary | plain-language report; the LLM never types a number, a checker enforces it; template fallback | ✅ done (LLM path tested with fake clients, see below) |
 | 6. Output | HTML report, GitHub Actions (tests on Python 3.10 and 3.12, pipeline run, Pages deploy) | ✅ done |
 
-153 tests cover the layers (`pytest`).
+169 tests cover the layers (`pytest`).
 
 ## Example: one million real transactions
 
@@ -115,6 +115,34 @@ cleaning: 10 change(s), 2 row(s) moved to rejected_ tables
 - **A rule caught a mistake in my own mart.** The first REIT mart included 2026Q1,
   which held only January. The mart now keeps only complete quarters, which also
   removed 1971Q4 (Nareit starts in December 1971), and a rule guards it.
+
+## Quick start: check and clean your own file
+
+```bash
+pip install git+https://github.com/Behindokht/dq-pipeline
+
+dqp init data/sales.xlsx            # 1. writes configs/sales.yaml by looking at the file
+dqp run configs/sales.yaml          # 2. profile, validate, clean, summarise -> outputs/sales/report.html
+dqp export outputs/sales --format xlsx   # 3. the cleaned tables as csv, xlsx or parquet
+```
+
+**`dqp init`** decides what it can see in the file and proposes the rest:
+- decided: csv or Excel (from the content, so `data.xlsx.xlsx` works), delimiter and encoding, which
+  sheets hold a table, on which row(s) each header is (title lines above it, headers over several
+  rows), missing-value markers such as `...`
+- proposed, as comments to accept: IDs and codes to keep as text, removing footer rows or duplicates
+  (you write the reason), and rules that hold on today's data (keep only those that must always hold)
+
+Nothing is cleaned or judged automatically. Tested against the hand-written configs of this repo:
+on all six real files (Artprice, Nareit, World Bank, the thesis master sheet, copper, Online Retail II)
+init finds the same header rows, delimiters and text columns, and accepting every suggestion gives a
+run that passes.
+
+**`dqp export`** writes every cleaned table and mart (`--tables staging|marts`, `--include-rejected`)
+with an `export_manifest.json` naming the run and its validation result. Data that failed validation
+after cleaning is not exported unless you pass `--allow-failed`.
+
+Then add your own rules and cleaning steps to the config, look at the report again, repeat.
 
 ## The report
 

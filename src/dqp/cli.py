@@ -1,6 +1,9 @@
 """Command line entry points:
+    dqp init data/sales.xlsx             write a starter config for a data file
     dqp run configs/copper.yaml          run the pipeline
     dqp site --out site outputs/copper   build the GitHub Pages site from finished runs
+    dqp export outputs/my_sales --format xlsx
+                                         cleaned tables to csv / xlsx / parquet
     dqp snapshot outputs/thesis_assets --out snapshots/thesis_assets
                                          quality-only copy of a local run, for the site
 """
@@ -30,7 +33,48 @@ def main(argv: list[str] | None = None) -> int:
     snap_cmd = sub.add_parser("snapshot", help="copy a quality-only report of a local run for the site")
     snap_cmd.add_argument("run", help="output folder of a finished run, e.g. outputs/thesis_assets")
     snap_cmd.add_argument("--out", required=True, help="folder to write the snapshot to")
+    exp_cmd = sub.add_parser("export", help="export the cleaned tables of a finished run")
+    exp_cmd.add_argument("run", help="output folder of a finished run, e.g. outputs/my_sales")
+    exp_cmd.add_argument("--format", default="csv", choices=["csv", "xlsx", "parquet"])
+    exp_cmd.add_argument("--tables", default="all", choices=["all", "staging", "marts"],
+                         help="staging tables, marts, or both (default)")
+    exp_cmd.add_argument("--out", default=None, help="folder to write to (default: <run>/export)")
+    exp_cmd.add_argument("--include-rejected", action="store_true", help="also export the rejected_ tables")
+    exp_cmd.add_argument("--keep-row-numbers", action="store_true",
+                         help="keep _row, the line number in the source file")
+    exp_cmd.add_argument("--allow-failed", action="store_true",
+                         help="export even if validation after cleaning failed")
+    init_cmd = sub.add_parser("init", help="write a starter config for a data file")
+    init_cmd.add_argument("file", help="a CSV or Excel file")
+    init_cmd.add_argument("--name", default=None, help="dataset name (default: from the file name)")
+    init_cmd.add_argument("--out", default=None, help="config file to write (default: configs/<name>.yaml)")
+    init_cmd.add_argument("--force", action="store_true", help="overwrite an existing config")
     args = parser.parse_args(argv)
+    if args.command == "init":
+        from dqp.init import InitError, write_config
+        try:
+            target, notes = write_config(args.file, args.out, args.name, args.force)
+        except (InitError, FileNotFoundError) as exc:
+            print(f"[failed] {exc}", file=sys.stderr)
+            return 1
+        print(f"wrote {target}")
+        for n in notes:
+            print(f"  - {n}")
+        print(f"next: check it, then  dqp run {target}")
+        return 0
+    if args.command == "export":
+        from dqp.export import ExportError, export_run
+        try:
+            m = export_run(args.run, args.format, args.tables, args.out, args.allow_failed,
+                           args.keep_row_numbers, args.include_rejected)
+        except ExportError as exc:
+            print(f"[not exported] {exc}", file=sys.stderr)
+            return 1
+        note = " (validation FAILED: exported because --allow-failed)" if m["exported_despite_failure"] else ""
+        print(f"exported {len(m['files'])} table(s) to {m['out']}/{note}")
+        for f in m["files"]:
+            print(f"  {f['file']:<48} {f['rows']:>10,} rows")
+        return 0
     if args.command == "snapshot":
         from dqp.site import make_snapshot
         try:
