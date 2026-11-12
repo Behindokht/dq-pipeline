@@ -1,0 +1,203 @@
+dataset: thesis_assets
+description: >
+  Multi-asset data from my MSc thesis "Art on the Portfolio Wall" (1998-2025):
+  the final quarterly master sheet plus the raw source files it was built from.
+  Chosen because the raw files are messy in typical real-world ways: title lines,
+  multi-row headers, legacy .xls, double file extensions, daily vs quarterly data.
+
+sources:
+  # Final analysis panel: 112 quarters x 185 series, clean single header.
+  - name: master
+    type: excel
+    path: data/thesis/FinalMasterSheet.xlsx
+
+  # Artprice global art index, legacy .xls, 3 title lines above the header.
+  - name: artprice
+    type: excel
+    path: data/thesis/art_artprice_global_index_q.xls.xls
+    header_rows: 3
+
+  # Nareit REIT index: 5 title lines, then a 3-row header with merged group
+  # labels ("All REITs" / "Total" / "Return"). The 'Var' sheet is blank.
+  - name: nareit
+    type: excel
+    path: data/thesis/realestate_reit_nareit_monthly.csv.xls
+    sheets:
+      - Var
+      - sheet: Index Data
+        header_rows: [5, 6, 7]
+
+  # World Bank Pink Sheet: commodity name and unit sit on two header rows;
+  # "…" marks a missing value. The other sheets are notes, not tables.
+  # Profiling (run 1) found a second marker, "..." (three dots), in Barley,
+  # Sorghum, Wheat and DAP, so it is declared here.
+  - name: worldbank
+    type: excel
+    path: data/thesis/commodity_worldbank_monthly.xlsx.xlsx
+    na_values: ["..."]
+    sheets:
+      - sheet: Monthly Prices
+        header_rows: [4, 5]
+
+  # FRED / OECD downloads: plain CSVs (daily and quarterly).
+  - name: fx_eur_usd_daily
+    type: csv
+    path: data/thesis/fx_eur_usd_daily.csv.csv
+  - name: equity_us_q
+    type: csv
+    path: data/thesis/equity_us_oecd_q.csv.csv
+
+# ------------------------------------------------------------------ cleaning
+# Every step needs a reason; removed rows move to rejected_<table>.
+cleaning:
+  artprice__data:
+    - rename: {column_1: date}
+    - snake_case: true
+    - drop_rows:
+        where: "date IS NULL"
+        reason: >
+          footer notes under the data in the Artprice download (a contact line and
+          a description); Excel stored numbers next to them as 1900 dates
+  nareit__index_data:
+    - snake_case: true
+  worldbank__monthly_prices:
+    - rename: {column_1: month}
+    - snake_case: true
+  fx_eur_usd_daily:
+    - rename: {observation_date: date, DEXUSEU: usd_per_eur}
+  equity_us_q:
+    - rename: {observation_date: date, SPASTT01USQ661N: us_share_price_index}
+
+# ------------------------------------------------------------------ marts
+marts:
+  - name: art_quarterly
+    description: Artprice indexes over the thesis window 1998Q1-2025Q4
+    sql: >
+      SELECT _row, date, global_index_usd, global_index_eur, painting, sculpture,
+             drawing, photography, print
+      FROM stg_artprice__data
+      WHERE date BETWEEN DATE '1998-01-01' AND DATE '2025-10-01'
+  # First run: a rule warned that 2026Q1 held only January. 1971Q4 is partial
+  # too (Nareit starts in December 1971). Only complete quarters go in the mart.
+  - name: reit_quarter_end
+    description: Nareit All REITs total return index, last month of each complete quarter
+    sql: >
+      SELECT date_trunc('quarter', date)::DATE AS quarter,
+             count(*) AS months,
+             max(date) AS last_month,
+             arg_max(all_reits_total_index, date) AS all_reits_total_index
+      FROM stg_nareit__index_data
+      GROUP BY 1 HAVING count(*) = 3 ORDER BY 1
+
+# ------------------------------------------------------------------ validation
+# Rules check the cleaned tables and marts unless they say stage: raw.
+validation:
+  rules:
+    # --- on arrival: the raw Artprice download is expected to fail this;
+    #     cleaning moves the footer rows to rejected_artprice__data
+    - table: artprice__data
+      stage: raw
+      name: every row has a valid date (on arrival)
+      not_null: [column_1]
+
+    # --- final master panel: keys and coverage
+    - table: master__sheet1
+      name: one row per quarter
+      unique: [date]
+    - table: master__sheet1
+      name: quarters 1998Q1 to 2025Q4, no gaps
+      date_coverage: {column: date, start: "1998-01-01", end: "2025-10-01", no_gaps: true}
+
+    # --- derived columns are consistent with their level series
+    #     (log level, return = 100 x change in log level, real = nominal - inflation,
+    #      excess = real - risk-free). Checked for bonds and US equities.
+    - table: master__sheet1
+      name: bond log level = ln(index)
+      expr: "abs(bond_ig_total_return_index_ln - ln(bond_ig_total_return_index)) < 1e-9"
+    - table: master__sheet1
+      name: bond nominal return = 100 x change in log level
+      sql: >
+        SELECT _row, date, bond_ig_total_return_index_ret_nom_pct AS stored, calc FROM (
+          SELECT _row, date, bond_ig_total_return_index_ret_nom_pct,
+                 100 * (bond_ig_total_return_index_ln - LAG(bond_ig_total_return_index_ln) OVER (ORDER BY date)) AS calc
+          FROM {table})
+        WHERE abs(bond_ig_total_return_index_ret_nom_pct - calc) > 1e-9
+    - table: master__sheet1
+      name: real return = nominal return - inflation (bonds, US equity)
+      expr: >
+        abs(bond_ig_total_return_index_ret_real_pct - (bond_ig_total_return_index_ret_nom_pct - inflation_q_pct_deflator)) < 1e-9
+        AND abs(equity_us_oecd_ret_real_pct - (equity_us_oecd_ret_nom_pct - inflation_q_pct_deflator)) < 1e-9
+    - table: master__sheet1
+      name: excess return = real return - risk-free rate (bonds, US equity)
+      expr: >
+        abs(bond_ig_total_return_index_excess_real_pct - (bond_ig_total_return_index_ret_real_pct - rf_q_pct)) < 1e-9
+        AND abs(equity_us_oecd_excess_real_pct - (equity_us_oecd_ret_real_pct - rf_q_pct)) < 1e-9
+
+    # --- the master sheet traces back to its source files
+    - table: master__sheet1
+      name: art columns equal the Artprice source file, every quarter
+      sql: >
+        SELECT m._row, m.date,
+               m.artprice_global_usd_index_old AS master_usd, a.global_index_usd AS source_usd,
+               m.art_global_index_eur AS master_eur, a.global_index_eur AS source_eur
+        FROM {table} m LEFT JOIN mart_art_quarterly a ON a.date = m.date
+        WHERE a.date IS NULL
+           OR abs(m.artprice_global_usd_index_old - a.global_index_usd) > 1e-9
+           OR abs(m.art_global_index_eur - a.global_index_eur) > 1e-9
+           OR abs(m.art_painting - a.painting) > 1e-9
+           OR abs(m.art_print - a.print) > 1e-9
+    - table: master__sheet1
+      name: REIT index equals the Nareit quarter-end value, every quarter
+      sql: >
+        SELECT m._row, m.date, m.reit_all_reits_tr_index AS master, r.all_reits_total_index AS source
+        FROM {table} m LEFT JOIN mart_reit_quarter_end r ON r.quarter = m.date
+        WHERE r.quarter IS NULL OR abs(m.reit_all_reits_tr_index - r.all_reits_total_index) > 1e-6
+
+    # --- flags and plausible ranges
+    - table: master__sheet1
+      name: crisis and recession flags are 0 or 1
+      expr: >
+        crisis_eq10_bottom10pct IN (0, 1) AND crisis_eq05_bottom5pct IN (0, 1)
+        AND crisis_combined_eq10_or_vix90 IN (0, 1) AND crisis_any_eq10_or_vix90_or_rec IN (0, 1)
+        AND us_recession_nber IN (0, 1) AND crisis_recession_nber IN (0, 1)
+    - table: master__sheet1
+      name: VIX quarterly average within its historical range
+      between: {column: vix_q_avg, min: 5, max: 90}
+    - table: master__sheet1
+      name: price and index levels are positive
+      expr: >
+        bond_ig_total_return_index > 0 AND oil_wti_usd > 0 AND gold_spot_usd_oz > 0
+        AND equity_us_oecd > 0 AND reit_all_reits_tr_index > 0 AND art_global_index_eur > 0
+    - table: master__sheet1
+      name: Bitcoin series starts when Bitcoin trading data exists
+      sql: >
+        SELECT MIN(date) AS first_btc_quarter FROM {table} WHERE btc_usd IS NOT NULL
+        HAVING MIN(date) < DATE '2010-01-01'
+
+    # --- cleaned Artprice data
+    - table: artprice__data
+      name: every row has a valid date
+      not_null: [date]
+    - table: artprice__data
+      name: art index levels are positive
+      expr: "global_index_usd > 0 AND global_index_eur > 0"
+    - table: art_quarterly
+      name: art mart covers 1998Q1-2025Q4 without gaps
+      date_coverage: {column: date, start: "1998-01-01", end: "2025-10-01", no_gaps: true}
+    - table: reit_quarter_end
+      name: every quarter is complete (3 months, ending in Mar/Jun/Sep/Dec)
+      expr: "months = 3 AND month(last_month) IN (3, 6, 9, 12)"
+    - table: reit_quarter_end
+      name: REIT mart covers the thesis window without gaps
+      date_coverage: {column: quarter, start: "1998-01-01", end: "2025-10-01", no_gaps: true}
+
+    # --- FRED EUR/USD: plausible range
+    - table: fx_eur_usd_daily
+      name: EUR/USD between 0.5 and 2
+      between: {column: usd_per_eur, min: 0.5, max: 2}
+
+# ------------------------------------------------------------------ summary
+summary:
+  provider: auto          # Anthropic or OpenAI if an API key is set, else the template
+  key_columns:
+    master__sheet1: [art_global_index_eur, equity_us_oecd, reit_all_reits_tr_index, gold_spot_usd_oz, btc_usd]

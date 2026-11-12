@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dq-pipeline"
+version = "0.1.0"
+description = "Point it at any tabular dataset: it profiles, validates, cleans, documents and summarises it."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Behindokht Alipour" }]
+dependencies = [
+  "duckdb>=1.0",
+  "pandas>=2.0",
+  "openpyxl>=3.1",
+  "xlrd>=2.0",            # legacy .xls files
+  "pydantic>=2.0",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+dqp = "dqp.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

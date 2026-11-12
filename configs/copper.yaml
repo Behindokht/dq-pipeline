@@ -1,0 +1,91 @@
+dataset: copper
+description: >
+  Monthly metal, oil and dollar series 1960 onwards (800 months), exported from
+  the copper-market-analysis project. The validation rules below re-implement the
+  panel-level checks of that project as configuration (not its full 163 checks,
+  which run on the complete source database).
+
+sources:
+  - name: monthly_series
+    type: csv
+    path: data/copper/copper_monthly.csv
+    delimiter: ","
+    header: true
+
+# Rules modelled on copper_database/sql/03_checks.sql in copper-market-analysis.
+# That file checks the full database (113 check blocks over World Bank, FRED,
+# LME, USGS, IEA ...); this export holds only the final monthly panel, so the
+# rules below cover the panel-level checks: keys, coverage, ranges, arithmetic.
+validation:
+  rules:
+    # "panel no missing or duplicate months"
+    - table: monthly_series
+      name: one row per month
+      unique: [month]
+    - table: monthly_series
+      name: every month from January 1960, no gaps
+      date_coverage: {column: month, start: "1960-01-01", no_gaps: true}
+    - table: monthly_series
+      name: core prices always present
+      not_null: [month, cu_usd, al_usd]
+
+    # "CPI gap": real prices need US CPI, which has no value for October 2025
+    # (US federal shutdown, BLS collected no data; see copper_database/README.md).
+    # That one month is the documented exception; any other missing month is flagged.
+    - table: monthly_series
+      name: real copper price present except the documented October 2025 CPI gap
+      severity: warn
+      description: First run flagged 2025-10; matches the known issue in the copper project.
+      sql: >
+        SELECT _row, month FROM {table}
+        WHERE cu_real IS NULL AND month <> DATE '2025-10-01'
+
+    # "FRED plausible value ranges", "LME plausible price range"
+    - table: monthly_series
+      name: metal and oil prices are positive
+      expr: "cu_usd > 0 AND al_usd > 0 AND gold_usd > 0 AND tin_usd > 0 AND brent_usd > 0"
+    - table: monthly_series
+      name: copper price within a plausible range ($/t)
+      between: {column: cu_usd, min: 300, max: 20000}
+    - table: monthly_series
+      name: dollar index within a plausible range
+      between: {column: dxy, min: 60, max: 180}
+    - table: monthly_series
+      name: 36-month correlation is a correlation
+      between: {column: corr36, min: -1, max: 1}
+
+    # "ratio equals copper divided by aluminium from the staging prices"
+    - table: monthly_series
+      name: ratio equals copper / aluminium
+      # ratio is stored rounded to 4 decimals, so it may differ by up to 0.00005;
+      # the small extra margin absorbs floating-point error (1598/1088 = 1.46875 -> 1.4688)
+      expr: "abs(ratio - cu_usd / al_usd) <= 0.0000501"
+    - table: monthly_series
+      name: ratio_ma12 is the 12-month average of ratio
+      sql: >
+        SELECT _row, month, ratio_ma12, ma FROM (
+          SELECT _row, month, ratio_ma12,
+                 AVG(ratio) OVER (ORDER BY month ROWS 11 PRECEDING) AS ma,
+                 COUNT(ratio) OVER (ORDER BY month ROWS 11 PRECEDING) AS n
+          FROM {table})
+        WHERE n = 12 AND abs(ratio_ma12 - ma) > 0.0001
+
+    # "percentiles ... stay between 0 and 100, and are 100 at a new all-time high"
+    - table: monthly_series
+      name: record percentages between 0 and 100
+      expr: "cu_rec_pct BETWEEN 0 AND 100 AND al_rec_pct BETWEEN 0 AND 100 AND gold_rec_pct BETWEEN 0 AND 100"
+    - table: monthly_series
+      name: copper record % = real price / all-time high real price
+      sql: >
+        SELECT _row, month, cu_rec_pct FROM {table}
+        WHERE abs(cu_rec_pct - 100 * cu_real / (SELECT MAX(cu_real) FROM {table})) > 0.0001
+    - table: monthly_series
+      name: exactly one month at the all-time copper high
+      sql: >
+        SELECT COUNT(*) AS months_at_100 FROM {table} WHERE cu_rec_pct = 100
+        HAVING COUNT(*) <> 1
+
+summary:
+  provider: auto          # Anthropic or OpenAI if an API key is set, else the template
+  key_columns:
+    monthly_series: [cu_usd, cu_real, ratio, gold_usd, brent_usd]
