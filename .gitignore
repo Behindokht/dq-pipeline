@@ -18,3 +18,9 @@ site/
 
 # Files fetched by `download:` sources (re-downloaded in CI, never committed)
 data/downloads/
+
+# packaging
+build/
+dist/
+*.egg-info/
+.coverage
