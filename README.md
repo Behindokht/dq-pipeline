@@ -121,7 +121,7 @@ cleaning: 10 change(s), 2 row(s) moved to rejected_ tables
 ## Use it in the browser
 
 ```bash
-pip install "dqp[gui] @ git+https://github.com/Behindokht/dq-pipeline"
+pip install "dq-pipeline[gui] @ git+https://github.com/Behindokht/dq-pipeline"
 dqp gui
 ```
 

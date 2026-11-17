@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dq-pipeline"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Point it at any tabular dataset: it profiles, validates, cleans, documents and summarises it."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -29,6 +29,9 @@ dqp = "dqp.cli:main"
 
 [tool.setuptools.package-data]
 dqp = ["report/*.css", "gui/*.css", "gui/examples/*.csv"]
+
+[tool.setuptools.dynamic]
+version = { attr = "dqp.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]

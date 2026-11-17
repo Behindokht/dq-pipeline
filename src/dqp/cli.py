@@ -16,11 +16,13 @@ import sys
 
 from pydantic import ValidationError
 
+from dqp import __version__
 from dqp.pipeline import run
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="dqp", description="Generic data quality & insight pipeline")
+    parser.add_argument("--version", action="version", version=f"dq-pipeline {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
     run_cmd = sub.add_parser("run", help="run the pipeline for one or more dataset configs")
     run_cmd.add_argument("configs", nargs="+", help="path(s) to YAML config files")

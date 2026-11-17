@@ -1,5 +1,7 @@
 # Runs on every push and pull request, every Monday, and on demand:
 #   1. tests      the full pytest suite, on Python 3.10 and 3.12
+#      package    installs the package the way the README says, in a clean environment outside
+#                 the repository, and checks that the CLI and the GUI start
 #   2. run        the pipeline on the public datasets (--strict: a FAIL stops the build);
 #                 Online Retail II is downloaded from UCI (checksum-verified, then cached),
 #                 then builds the site from the run's own output files
@@ -43,6 +45,40 @@ jobs:
           cache-dependency-path: pyproject.toml
       - run: pip install -e ".[dev]"
       - run: pytest -q
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install exactly as the README says (pinned to this commit), in a clean venv
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install "dq-pipeline[gui] @ git+${{ github.server_url }}/${{ github.repository }}@${{ github.sha }}"
+      - name: The CLI and the package files
+        working-directory: /tmp
+        run: |
+          /tmp/venv/bin/dqp --version
+          /tmp/venv/bin/dqp gui --help
+          /tmp/venv/bin/python -c "
+          from importlib import resources
+          g = resources.files('dqp') / 'gui'
+          for n in ('app.py', 'style.css', 'examples/shop_orders.csv'):
+              assert (g / n).is_file(), n
+          assert (resources.files('dqp') / 'report' / 'style.css').is_file()"
+      - name: The GUI starts and answers
+        working-directory: /tmp
+        run: |
+          /tmp/venv/bin/dqp gui --no-browser --port 8599 > gui.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:8599/_stcore/health && exit 0; sleep 1; done
+          cat gui.log; exit 1
+      - name: init and run on the bundled example, outside the repository
+        working-directory: /tmp
+        run: |
+          cp "$(/tmp/venv/bin/python -c "import dqp, os; print(os.path.dirname(dqp.__file__))")/gui/examples/shop_orders.csv" .
+          /tmp/venv/bin/dqp init shop_orders.csv --out shop.yaml
+          /tmp/venv/bin/dqp run --strict shop.yaml
 
   run:
     needs: tests

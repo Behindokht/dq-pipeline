@@ -1,4 +1,4 @@
-"""Browser interface for dqp (optional; needs the [gui] extra: pip install 'dqp[gui]')."""
+"""Browser interface for dqp (optional; needs the [gui] extra: pip install 'dq-pipeline[gui]')."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ def launch(port: int | None = None, open_browser: bool = True) -> int:
     try:
         import streamlit  # noqa: F401
     except ImportError:
-        print("The GUI needs Streamlit:  pip install 'dqp[gui]'   (or: pip install streamlit)", file=sys.stderr)
+        print("The GUI needs Streamlit:  pip install 'dq-pipeline[gui]'   (or: pip install streamlit)", file=sys.stderr)
         return 1
     cmd = [sys.executable, "-m", "streamlit", "run", str(APP), "--browser.gatherUsageStats", "false",
            "--server.headless", "false" if open_browser else "true", "--server.maxUploadSize", "500", "--client.toolbarMode", "viewer"]
