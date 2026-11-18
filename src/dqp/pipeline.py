@@ -44,7 +44,7 @@ from dqp.cleaning import CleaningError, build_mart, build_staging, table_coverag
 from dqp.config import load_config
 from dqp.connectors import load_source
 from dqp.profiling import ProfileSettings, build_highlights, profile_table
-from dqp.profiling.profiler import q
+from dqp.sql import ident
 from dqp.report import build_report
 from dqp.summary import build_facts, identifiers_of, make_client, write_summary
 from dqp.validation import Target, create_typed_view, run_validation, typed_name
@@ -229,7 +229,7 @@ def _clean(con, config, raw_tables: list[str]) -> dict:
         tables[info["staging_table"]] = info
     marts = [build_mart(con, m.name, m.sql) for m in config.marts]
     for m, spec in zip(marts, config.marts):
-        n = con.execute(f"SELECT COUNT(*) FROM {q(m)}").fetchall()[0][0]
+        n = con.execute(f"SELECT COUNT(*) FROM {ident(m)}").fetchall()[0][0]
         log.append({"table": m, "step": 0, "action": "build_mart", "reason": spec.description or "mart from SQL",
                     "rows_before": None, "rows_after": n, "rows_removed": 0, "values_changed": 0,
                     "columns": [], "details": " ".join(spec.sql.split())[:300], "examples": []})
@@ -240,14 +240,14 @@ def _profile_typed(con, table: str, settings: ProfileSettings) -> dict:
     """Profile a typed table (staging or mart) with the same profiler as raw data:
     through a text view, so types are re-detected from the values and every
     check works the same way at both stages. Rows are numbered by _row."""
-    cols = [r[0] for r in con.execute(f"DESCRIBE {q(table)}").fetchall() if r[0] != "_row"]
+    cols = [r[0] for r in con.execute(f"DESCRIBE {ident(table)}").fetchall() if r[0] != "_row"]
     view = f"_text_{table}"
-    casts = ", ".join(f"CAST({q(c)} AS VARCHAR) AS {q(c)}" for c in cols)
-    con.execute(f"CREATE OR REPLACE VIEW {q(view)} AS SELECT _row, {casts} FROM {q(table)}")
+    casts = ", ".join(f"CAST({ident(c)} AS VARCHAR) AS {ident(c)}" for c in cols)
+    con.execute(f"CREATE OR REPLACE VIEW {ident(view)} AS SELECT _row, {casts} FROM {ident(table)}")
     prof = profile_table(con, view, settings)
     # a typed table already has real types: a VARCHAR column there is text by decision
     # (an ID, a code, a label), not a number that failed to parse
-    types = {r[0]: r[1] for r in con.execute(f"DESCRIBE {q(table)}").fetchall()}
+    types = {r[0]: r[1] for r in con.execute(f"DESCRIBE {ident(table)}").fetchall()}
     _force_text(prof, [c for c in cols if types[c] == "VARCHAR" and prof["columns_profile"][c]["inferred_type"] != "empty"])
     return prof
 

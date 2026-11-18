@@ -23,7 +23,7 @@ from dataclasses import asdict, dataclass, field
 import duckdb
 
 from dqp.config import Rule, ValidationConfig
-from dqp.profiling.profiler import q
+from dqp.sql import ident
 
 GENERIC_DEFAULTS = {
     "table_not_empty": "fail",
@@ -119,9 +119,9 @@ def generic_checks(con, target: Target, prof: dict, cfg: ValidationConfig, max_e
 
     dup_examples = []
     if prof["duplicate_rows"]:
-        cols = ", ".join(q(c) for c in prof["columns_profile"])
+        cols = ", ".join(ident(c) for c in prof["columns_profile"])
         dup_examples = [{"rows": r[0]} for r in con.execute(
-            f"SELECT list(_row ORDER BY _row) FROM {q(target.view)} GROUP BY {cols} "
+            f"SELECT list(_row ORDER BY _row) FROM {ident(target.view)} GROUP BY {cols} "
             f"HAVING COUNT(*) > 1 LIMIT {max_examples}").fetchall()]
     add("no_duplicate_rows", "no exact duplicate rows", prof["duplicate_rows"],
         f"{prof['duplicate_rows']} extra copies in {prof['duplicate_row_groups']} group(s)", dup_examples, rows)
@@ -182,7 +182,7 @@ def _columns_in(expr: str, columns: list[str]) -> list[str]:
 
 def run_rule(con, rule: Rule, target: Target, prof: dict, max_examples: int) -> CheckResult:
     raw_table = target.name
-    view = q(target.view)
+    view = ident(target.view)
     columns = list(prof["columns_profile"])
     r = CheckResult(check_id="", table=raw_table, name=rule.name or "", origin="rule", stage=rule.stage, kind=rule.kind,
                     severity=rule.severity, description=rule.description)
@@ -190,7 +190,7 @@ def run_rule(con, rule: Rule, target: Target, prof: dict, max_examples: int) -> 
 
     if rule.expr is not None:
         cols = _columns_in(rule.expr, columns)
-        show = ", ".join(["_row"] + [q(c) for c in cols])
+        show = ", ".join(["_row"] + [ident(c) for c in cols])
         failing_sql = f"SELECT {show} FROM {view} WHERE NOT ({rule.expr})"
         r.name = r.name or rule.expr
         r.checked = _count(con, f"SELECT 1 FROM {view} WHERE ({rule.expr}) IS NOT NULL")
@@ -201,17 +201,21 @@ def run_rule(con, rule: Rule, target: Target, prof: dict, max_examples: int) -> 
             r.detail += f" ({rows - r.checked} rows not evaluated: missing values)"
 
     elif rule.unique is not None:
-        keys = ", ".join(q(c) for c in rule.unique)
-        groups = f"SELECT {keys}, COUNT(*) AS n, list(_row ORDER BY _row) AS rows FROM {view} GROUP BY {keys} HAVING COUNT(*) > 1"
+        keys = ", ".join(ident(c) for c in rule.unique)
+        groups = f"SELECT {keys}, COUNT(*) AS __dqp_n, list(_row ORDER BY _row) AS __dqp_rows FROM {view} GROUP BY {keys} HAVING COUNT(*) > 1"
         r.name = r.name or f"unique ({', '.join(rule.unique)})"
-        r.failing = con.execute(f"SELECT COALESCE(SUM(n - 1), 0) FROM ({groups})").fetchall()[0][0]
+        r.failing = con.execute(f"SELECT COALESCE(SUM(__dqp_n - 1), 0) FROM ({groups})").fetchall()[0][0]
         r.checked = rows
-        r.examples = _rows(con, groups + " ORDER BY n DESC", max_examples)
+        # examples keep their usual keys n and rows, unless a key column already has that name
+        label = {"__dqp_n": "n" if "n" not in rule.unique else "repeats",
+                 "__dqp_rows": "rows" if "rows" not in rule.unique else "source rows"}
+        r.examples = [{label.get(k, k): v for k, v in x.items()}
+                      for x in _rows(con, groups + " ORDER BY __dqp_n DESC", max_examples)]
         r.detail = f"{r.failing} row(s) repeat a key that already occurred"
 
     elif rule.not_null is not None:
-        cond = " OR ".join(f"{q(c)} IS NULL" for c in rule.not_null)
-        failing_sql = f"SELECT _row, {', '.join(q(c) for c in rule.not_null)} FROM {view} WHERE {cond}"
+        cond = " OR ".join(f"{ident(c)} IS NULL" for c in rule.not_null)
+        failing_sql = f"SELECT _row, {', '.join(ident(c) for c in rule.not_null)} FROM {view} WHERE {cond}"
         r.name = r.name or f"always filled: {', '.join(rule.not_null)}"
         r.checked = rows
         r.failing = _count(con, failing_sql)
@@ -221,7 +225,7 @@ def run_rule(con, rule: Rule, target: Target, prof: dict, max_examples: int) -> 
         if target.raw and raw_cols:   # show what the value was in the source file, if there was one
             raw_examples = []
             for e in r.examples:
-                vals = con.execute(f"SELECT {', '.join(q(rc) for _, rc in raw_cols)} FROM {q(target.raw)} "
+                vals = con.execute(f"SELECT {', '.join(ident(rc) for _, rc in raw_cols)} FROM {ident(target.raw)} "
                                    f"WHERE rowid + 1 = ?", [e["_row"]]).fetchall()
                 vals = vals[0] if vals else [None] * len(raw_cols)
                 raw_examples.append({"_row": e["_row"], **{f"raw {c}": v for (c, _), v in zip(raw_cols, vals)}})
@@ -230,21 +234,21 @@ def run_rule(con, rule: Rule, target: Target, prof: dict, max_examples: int) -> 
 
     elif rule.between is not None:
         b = rule.between
-        conds = ([f"{q(b.column)} < {b.min!r}"] if b.min is not None else []) + \
-                ([f"{q(b.column)} > {b.max!r}"] if b.max is not None else [])
-        failing_sql = f"SELECT _row, {q(b.column)} FROM {view} WHERE {' OR '.join(conds)}"
+        conds = ([f"{ident(b.column)} < {b.min!r}"] if b.min is not None else []) + \
+                ([f"{ident(b.column)} > {b.max!r}"] if b.max is not None else [])
+        failing_sql = f"SELECT _row, {ident(b.column)} FROM {view} WHERE {' OR '.join(conds)}"
         r.name = r.name or f"{b.column} between {b.min} and {b.max}"
-        r.checked = _count(con, f"SELECT 1 FROM {view} WHERE {q(b.column)} IS NOT NULL")
+        r.checked = _count(con, f"SELECT 1 FROM {view} WHERE {ident(b.column)} IS NOT NULL")
         r.failing = _count(con, failing_sql)
         r.examples = _rows(con, failing_sql + " ORDER BY _row", max_examples)
         r.detail = f"{r.failing} of {r.checked} values outside [{b.min}, {b.max}]"
 
     elif rule.allowed is not None:
         a = rule.allowed
-        failing_sql = (f"SELECT _row, {q(a.column)} FROM {view} WHERE {q(a.column)} IS NOT NULL "
-                       f"AND {q(a.column)} NOT IN ({', '.join(_lit(v) for v in a.values)})")
+        failing_sql = (f"SELECT _row, {ident(a.column)} FROM {view} WHERE {ident(a.column)} IS NOT NULL "
+                       f"AND {ident(a.column)} NOT IN ({', '.join(_lit(v) for v in a.values)})")
         r.name = r.name or f"{a.column} in {a.values}"
-        r.checked = _count(con, f"SELECT 1 FROM {view} WHERE {q(a.column)} IS NOT NULL")
+        r.checked = _count(con, f"SELECT 1 FROM {view} WHERE {ident(a.column)} IS NOT NULL")
         r.failing = _count(con, failing_sql)
         r.examples = _rows(con, failing_sql + " ORDER BY _row", max_examples)
         r.detail = f"{r.failing} of {r.checked} values not in the allowed list"
@@ -259,7 +263,7 @@ def run_rule(con, rule: Rule, target: Target, prof: dict, max_examples: int) -> 
     elif rule.date_coverage is not None:
         dc = rule.date_coverage
         r.name = r.name or f"{dc.column} coverage"
-        dmin, dmax = con.execute(f"SELECT MIN({q(dc.column)}), MAX({q(dc.column)}) FROM {view}").fetchall()[0]
+        dmin, dmax = con.execute(f"SELECT MIN({ident(dc.column)}), MAX({ident(dc.column)}) FROM {view}").fetchall()[0]
         problems = []
         # compare calendar dates: a timestamp on the start day is on time
         if dc.start and (dmin is None or str(dmin)[:10] > dc.start[:10]):
@@ -281,7 +285,7 @@ def run_rule(con, rule: Rule, target: Target, prof: dict, max_examples: int) -> 
         r.detail = f"{dmin} to {dmax}" + ("; " + "; ".join(problems) if problems else "")
 
     elif rule.sql is not None:
-        sql = rule.sql.replace("{table}", view).replace("{raw}", q(target.raw or target.view))
+        sql = rule.sql.replace("{table}", view).replace("{raw}", ident(target.raw or target.view))
         r.name = r.name or "custom SQL check"
         r.failing = _count(con, sql)
         r.examples = _rows(con, sql, max_examples)

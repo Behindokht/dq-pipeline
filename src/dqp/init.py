@@ -30,6 +30,7 @@ from dqp.config import DatasetConfig, slugify
 from dqp.connectors import load_source
 from dqp.profiling import ProfileSettings, profile_table
 from dqp.profiling.profiler import DATE_FORMATS
+from dqp.sql import ident, ident_if_needed
 
 SCAN_ROWS = 60
 PLACEHOLDERS = ("…", "..", "...", "-", "--", "n/a", "N/A", "NA", "#N/A", "null", "NULL", "?")
@@ -373,8 +374,8 @@ def _footer_facts(con, table: str, prof: dict) -> None:
         return
     rows = sorted({e["row"] for e in prof["columns_profile"][col]["nonconforming_examples"]})
     cols = list(prof["columns_profile"])
-    sel = ", ".join(f"COUNT(*) FILTER (WHERE {_sqlname_any(c)} IS NULL OR trim({_sqlname_any(c)}) = '')" for c in cols)
-    counts = con.execute(f"SELECT {sel} FROM {_sqlname_any(table)} WHERE rowid + 1 IN ({', '.join(map(str, rows))})"
+    sel = ", ".join(f"COUNT(*) FILTER (WHERE {ident(c)} IS NULL OR trim({ident(c)}) = '')" for c in cols)
+    counts = con.execute(f"SELECT {sel} FROM {ident(table)} WHERE rowid + 1 IN ({', '.join(map(str, rows))})"
                          ).fetchall()[0]
     prof["footer"] = {"column": col, "rows": rows, "nulls": dict(zip(cols, counts)),
                       "nonconforming": {c: sum(e["row"] in rows for e in p.get("nonconforming_examples", []))
@@ -420,7 +421,7 @@ def suggest(profiles: dict, skip: set[tuple[str, str]] | None = None) -> tuple[l
         if footer_col:
             ex = cols[footer_col]["nonconforming_examples"][0]
             out.append(Suggestion("cleaning", short,
-                                  {"drop_rows": {"where": f"{_sqlname(names[footer_col])} IS NULL", "reason": ""}},
+                                  {"drop_rows": {"where": f"{ident_if_needed(names[footer_col])} IS NULL", "reason": ""}},
                                   f"rows under the data that are not data, e.g. row {ex['row']}: {str(ex['value'])[:40]!r}",
                                   needs_reason=True))
         if prof["duplicate_rows"]:
@@ -449,7 +450,7 @@ def suggest(profiles: dict, skip: set[tuple[str, str]] | None = None) -> tuple[l
         nonneg = [c for c, p in cols.items() if p.get("numeric") and p["numeric"]["count"]
                   and p["numeric"]["min"] >= 0 and not _id_like(c)][:3]
         for c in nonneg:
-            out.append(Suggestion("rules", short, {"expr": f"{_sqlname(names[c])} >= 0"}, f"{names[c]} is never negative"))
+            out.append(Suggestion("rules", short, {"expr": f"{ident_if_needed(names[c])} >= 0"}, f"{names[c]} is never negative"))
         # never empty today, and nothing unreadable (unreadable values are empty after typing);
         # footer rows do not count when the step that sets them aside is used
         foot = prof.get("footer") if (short, "drop_rows") not in skip else None
@@ -575,20 +576,13 @@ def _snake(name: str) -> str:
     return snake(name)
 
 
-def _q(name: str) -> str:
+def _yaml_scalar(name: str) -> str:
+    """A column name as a YAML scalar: bare when that is safe, quoted otherwise."""
     return name if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) else yaml.safe_dump(name).strip().removesuffix("\n...")
 
 
-def _sqlname_any(name: str) -> str:
-    return '"' + name.replace('"', '""') + '"'
-
-
-def _sqlname(name: str) -> str:
-    return name if re.fullmatch(r"[a-z_][a-z0-9_]*", name) else '"' + name.replace('"', '""') + '"'
-
-
 def _flow(items: list[str]) -> str:
-    return "[" + ", ".join(_q(i) for i in items) + "]"
+    return "[" + ", ".join(_yaml_scalar(i) for i in items) + "]"
 
 
 def write_config(path: str | Path, out: str | Path | None = None, name: str | None = None,

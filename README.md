@@ -439,6 +439,9 @@ The copper file is the monthly series exported from
 
 Found by testing on purpose, kept here so nothing is overclaimed:
 
+- **Reserved column names:** a source column called `rowid`, `_row`, `_step`, `_action` or `_reason`
+  is renamed to `<name>_source` on load, because the pipeline uses these names itself. The load log
+  says so. Any other name, including SQL keywords like `order` or `table`, is kept as it is.
 - **Sources:** CSV, Excel and Google Sheets. Private Google Sheets are not supported on purpose:
   they would need a Google login (OAuth or a service account) stored somewhere.
 - **`dqp init`** recognises numeric tables (header above rows of numbers and dates) and text tables

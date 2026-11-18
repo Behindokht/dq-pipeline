@@ -30,9 +30,11 @@ from pydantic import ValidationError
 from dqp.config import DatasetConfig, slugify
 from dqp.connectors import load_source
 from dqp.export import ExportError, export_run
-from dqp.gui.helpers import is_number, parse_rows, portable, rule_label, sql_name, sql_text
+from dqp.gui.helpers import is_number, parse_rows, portable, rule_label
 from dqp.init import Analysis, InitError, Suggestion, analyse, profile_source, suggest
 from dqp.pipeline import run
+from dqp.sql import ident_if_needed as sql_name
+from dqp.sql import text as sql_text
 from dqp.profiling.highlights import build_highlights
 
 HERE = Path(__file__).parent

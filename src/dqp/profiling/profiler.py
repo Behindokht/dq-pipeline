@@ -28,6 +28,8 @@ from dataclasses import dataclass
 import duckdb
 import pandas as pd
 
+from dqp.sql import ident
+
 # Date formats recognised in text values. Order matters only for reporting.
 DATE_FORMATS: dict[str, str] = {
     "iso_datetime": r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$",
@@ -52,9 +54,6 @@ class ProfileSettings:
                                      # so row numbers always point at the line in the source file
 
 
-def q(name: str) -> str:
-    """Quote an identifier for SQL (column names here contain spaces, $, commas ...)."""
-    return '"' + name.replace('"', '""') + '"'
 
 
 def lit(text: str) -> str:
@@ -130,13 +129,13 @@ def _infer_type(c: dict, threshold: float) -> tuple[str, float, str | None]:
 
 
 def profile_column(con, table: str, column: str, n_rows: int, s: ProfileSettings) -> dict:
-    v = f"trim({q(column)})"
+    v = f"trim({ident(column)})"
     fmt_counts = ",\n".join(
         f"COUNT(*) FILTER (WHERE regexp_full_match({v}, {lit(p)})) AS fmt_{k}" for k, p in DATE_FORMATS.items())
     base = con.execute(f"""
-        SELECT COUNT({q(column)}) AS non_null,
-               COUNT(DISTINCT {q(column)}) AS distinct_values,
-               COUNT(*) FILTER (WHERE {q(column)} <> {v}) AS whitespace,
+        SELECT COUNT({ident(column)}) AS non_null,
+               COUNT(DISTINCT {ident(column)}) AS distinct_values,
+               COUNT(*) FILTER (WHERE {ident(column)} <> {v}) AS whitespace,
                COUNT(*) FILTER (WHERE TRY_CAST({v} AS DOUBLE) IS NOT NULL) AS numeric,
                COUNT(*) FILTER (WHERE TRY_CAST({v} AS DOUBLE) IS NULL
                                   AND regexp_full_match({v}, {lit(DECIMAL_COMMA)})) AS decimal_comma,
@@ -146,7 +145,7 @@ def profile_column(con, table: str, column: str, n_rows: int, s: ProfileSettings
                COUNT(*) FILTER (WHERE regexp_full_match({v}, {lit(DATE_FORMATS['slash_date'])})
                                   AND TRY_CAST(regexp_extract({v}, '^\\d+[/.-](\\d+)', 1) AS INTEGER) > 12) AS slash_month_first,
                {fmt_counts}
-        FROM {q(table)}
+        FROM {ident(table)}
     """).fetchdf().iloc[0].to_dict()
     c = {k: int(val) for k, val in base.items()}
 
@@ -173,11 +172,11 @@ def profile_column(con, table: str, column: str, n_rows: int, s: ProfileSettings
                                         "numeric": c["numeric"], "boolean": c["boolean"]}[k])
         out["mixed_dominant_type"] = check_kind
     if check_kind in ("numeric", "numeric_decimal_comma", "date", "boolean"):
-        cond = f"{q(column)} IS NOT NULL AND NOT ({_fits(check_kind, v, slash_month_first)})"
-        out["nonconforming"] = con.execute(f"SELECT COUNT(*) FROM {q(table)} WHERE {cond}").fetchall()[0][0]
+        cond = f"{ident(column)} IS NOT NULL AND NOT ({_fits(check_kind, v, slash_month_first)})"
+        out["nonconforming"] = con.execute(f"SELECT COUNT(*) FROM {ident(table)} WHERE {cond}").fetchall()[0][0]
         out["nonconforming_examples"] = [
             {"row": int(r), "value": val} for r, val in con.execute(
-                f"SELECT {s.row_expr} AS r, {q(column)} FROM {q(table)} WHERE {cond} ORDER BY r LIMIT {s.max_examples}"
+                f"SELECT {s.row_expr} AS r, {ident(column)} FROM {ident(table)} WHERE {cond} ORDER BY r LIMIT {s.max_examples}"
             ).fetchall()]
 
     if kind in ("numeric", "numeric_decimal_comma"):
@@ -189,7 +188,7 @@ def profile_column(con, table: str, column: str, n_rows: int, s: ProfileSettings
         # timestamps with a real time of day must stay timestamps when typed: casting
         # them to DATE would silently merge lines that differ only by their time
         out["date"]["has_time"] = bool(con.execute(
-            f"SELECT COUNT(*) FROM {q(table)} WHERE regexp_full_match({v}, {lit(DATE_FORMATS['iso_datetime'])}) "
+            f"SELECT COUNT(*) FROM {ident(table)} WHERE regexp_full_match({v}, {lit(DATE_FORMATS['iso_datetime'])}) "
             f"AND NOT regexp_matches({v}, '[ T]00:00(:00(\\.0+)?)?$')").fetchall()[0][0])
         out["date"]["slash_month_first"] = slash_month_first
         out["date"]["formats_used"] = used
@@ -198,16 +197,16 @@ def profile_column(con, table: str, column: str, n_rows: int, s: ProfileSettings
     elif kind in ("text", "boolean", "mixed"):
         out["top_values"] = [
             {"value": val, "count": int(n)} for val, n in con.execute(
-                f"SELECT {q(column)}, COUNT(*) n FROM {q(table)} WHERE {q(column)} IS NOT NULL "
-                f"GROUP BY 1 ORDER BY n DESC, 1 LIMIT {s.top_values}").fetchall()]
-        lengths = con.execute(f"SELECT MIN(length({q(column)})), MAX(length({q(column)})) FROM {q(table)}").fetchall()[0]
+                f"SELECT {ident(column)}, COUNT(*) __dqp_n FROM {ident(table)} WHERE {ident(column)} IS NOT NULL "
+                f"GROUP BY 1 ORDER BY __dqp_n DESC, 1 LIMIT {s.top_values}").fetchall()]
+        lengths = con.execute(f"SELECT MIN(length({ident(column)})), MAX(length({ident(column)})) FROM {ident(table)}").fetchall()[0]
         out["length_min"], out["length_max"] = lengths
     return out
 
 
 def _numeric_stats(con, table, column, v, decimal_comma, s) -> dict:
     x = _number_expr(v, decimal_comma)
-    src = f"(SELECT {s.row_expr} AS row, {x} AS x FROM {q(table)}) t WHERE x IS NOT NULL AND isfinite(x)"
+    src = f"(SELECT {s.row_expr} AS row, {x} AS x FROM {ident(table)}) t WHERE x IS NOT NULL AND isfinite(x)"
     r = con.execute(f"""
         SELECT COUNT(*), MIN(x), MAX(x), AVG(x), STDDEV_SAMP(x),
                quantile_cont(x, [0.01, 0.25, 0.5, 0.75, 0.99]),
@@ -264,9 +263,9 @@ def _period_index(d: pd.Series, freq: str) -> pd.Series:
 def _date_stats(con, table, column, v, slash_month_first, s) -> dict:
     expr = _date_expr(v, slash_month_first)
     total, distinct = con.execute(
-        f"SELECT COUNT(d), COUNT(DISTINCT d) FROM (SELECT {expr} AS d FROM {q(table)})").fetchall()[0]
+        f"SELECT COUNT(d), COUNT(DISTINCT d) FROM (SELECT {expr} AS d FROM {ident(table)})").fetchall()[0]
     dates = pd.Series(pd.to_datetime([r[0] for r in con.execute(
-        f"SELECT DISTINCT {expr} AS d FROM {q(table)} WHERE d IS NOT NULL ORDER BY d").fetchall()]))
+        f"SELECT DISTINCT {expr} AS d FROM {ident(table)} WHERE d IS NOT NULL ORDER BY d").fetchall()]))
 
     out = {"min": None, "max": None, "distinct_dates": distinct, "duplicate_dates": total - distinct,
            "duplicate_examples": [], "frequency": "unknown", "expected_periods": None,
@@ -274,7 +273,7 @@ def _date_stats(con, table, column, v, slash_month_first, s) -> dict:
     if out["duplicate_dates"]:
         out["duplicate_examples"] = [
             {"date": str(d), "count": int(n)} for d, n in con.execute(
-                f"SELECT d, COUNT(*) n FROM (SELECT {expr} AS d FROM {q(table)}) WHERE d IS NOT NULL "
+                f"SELECT d, COUNT(*) n FROM (SELECT {expr} AS d FROM {ident(table)}) WHERE d IS NOT NULL "
                 f"GROUP BY d HAVING n > 1 ORDER BY n DESC, d LIMIT {s.max_examples}").fetchall()]
     if dates.empty:
         return out
@@ -328,14 +327,14 @@ def _date_stats(con, table, column, v, slash_month_first, s) -> dict:
 def profile_table(con: duckdb.DuckDBPyConnection, table: str, s: ProfileSettings | None = None) -> dict:
     s = s or ProfileSettings()
     # _row is lineage (row number in the source file), not data
-    columns = [r[0] for r in con.execute(f"DESCRIBE {q(table)}").fetchall() if r[0] != "_row"]
-    n_rows = con.execute(f"SELECT COUNT(*) FROM {q(table)}").fetchall()[0][0]
+    columns = [r[0] for r in con.execute(f"DESCRIBE {ident(table)}").fetchall() if r[0] != "_row"]
+    n_rows = con.execute(f"SELECT COUNT(*) FROM {ident(table)}").fetchall()[0][0]
 
     cols = {c: profile_column(con, table, c, n_rows, s) for c in columns}
 
-    col_list = ", ".join(q(c) for c in columns)
-    dup = con.execute(f"""SELECT COALESCE(SUM(n - 1), 0), COUNT(*) FROM
-        (SELECT {col_list}, COUNT(*) n FROM {q(table)} GROUP BY ALL HAVING COUNT(*) > 1)""").fetchall()[0]
+    col_list = ", ".join(ident(c) for c in columns)
+    dup = con.execute(f"""SELECT COALESCE(SUM(__dqp_n - 1), 0), COUNT(*) FROM
+        (SELECT {col_list}, COUNT(*) __dqp_n FROM {ident(table)} GROUP BY ALL HAVING COUNT(*) > 1)""").fetchall()[0]
 
     date_cols = [c for c, p in cols.items() if p["inferred_type"] == "date"]
     main_date = max(date_cols, key=lambda c: (cols[c]["non_null"], -columns.index(c)), default=None)

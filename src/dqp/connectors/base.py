@@ -20,6 +20,8 @@ from typing import Literal
 import duckdb
 import pandas as pd
 
+from dqp.sql import ident
+
 
 @dataclass
 class LoadResult:
@@ -110,24 +112,19 @@ def unique_column_names(names: list[str]) -> tuple[list[str], list[str]]:
     return out, notes
 
 
-def quote_ident(name: str) -> str:
-    """Quote a column or table name for SQL; names from spreadsheets can contain anything."""
-    return '"' + str(name).replace('"', '""') + '"'
-
-
 def write_frame_as_text(con: duckdb.DuckDBPyConnection, table: str, df: pd.DataFrame) -> None:
     """Store a DataFrame as an all-text raw table. Empty cells become NULL."""
     text = df.astype("string").astype(object).where(df.notna(), None)
     text.columns = [str(c) for c in text.columns]
     con.register("_incoming", text)
     try:
-        cols = ", ".join(f"CAST({quote_ident(c)} AS VARCHAR) AS {quote_ident(c)}" for c in text.columns)
+        cols = ", ".join(f"CAST({ident(c)} AS VARCHAR) AS {ident(c)}" for c in text.columns)
         con.execute(f'CREATE OR REPLACE TABLE "{table}" AS SELECT {cols} FROM _incoming')
     finally:
         con.unregister("_incoming")
 
 
 def describe_table(con: duckdb.DuckDBPyConnection, table: str) -> tuple[int, list[str]]:
-    rows = con.execute(f"SELECT COUNT(*) FROM {quote_ident(table)}").fetchall()[0][0]
-    names = [r[0] for r in con.execute(f"DESCRIBE {quote_ident(table)}").fetchall()]
+    rows = con.execute(f"SELECT COUNT(*) FROM {ident(table)}").fetchall()[0][0]
+    names = [r[0] for r in con.execute(f"DESCRIBE {ident(table)}").fetchall()]
     return rows, names

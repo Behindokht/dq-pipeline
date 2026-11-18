@@ -21,7 +21,7 @@ from pathlib import Path
 
 import duckdb
 
-from dqp.profiling.profiler import q
+from dqp.sql import ident
 
 FORMATS = ("csv", "xlsx", "parquet")
 EXCEL_MAX_ROWS = 1_048_575          # Excel's limit minus the header row
@@ -74,8 +74,8 @@ def export_run(run_dir: str | Path, fmt: str = "csv", tables: str = "all", out: 
                 cols = _columns(con, t, keep_row_numbers)
                 target = out / f"{t}.{fmt}"
                 opts = "(HEADER, DELIMITER ',')" if fmt == "csv" else "(FORMAT PARQUET)"
-                con.execute(f"COPY (SELECT {cols} FROM {q(t)}) TO '{_sql_path(target)}' {opts}")
-                rows = con.execute(f"SELECT COUNT(*) FROM {q(t)}").fetchall()[0][0]
+                con.execute(f"COPY (SELECT {cols} FROM {ident(t)}) TO '{_sql_path(target)}' {opts}")
+                rows = con.execute(f"SELECT COUNT(*) FROM {ident(t)}").fetchall()[0][0]
                 files.append({"table": t, "file": target.name, "rows": rows})
     finally:
         con.close()
@@ -89,10 +89,10 @@ def export_run(run_dir: str | Path, fmt: str = "csv", tables: str = "all", out: 
 
 
 def _columns(con, table: str, keep_row_numbers: bool) -> str:
-    cols = [r[0] for r in con.execute(f"DESCRIBE {q(table)}").fetchall()]
+    cols = [r[0] for r in con.execute(f"DESCRIBE {ident(table)}").fetchall()]
     if not keep_row_numbers:
         cols = [c for c in cols if c != "_row"]
-    return ", ".join(q(c) for c in cols)
+    return ", ".join(ident(c) for c in cols)
 
 
 def _sql_path(p: Path) -> str:
@@ -103,13 +103,13 @@ def _to_excel(con, names: list[str], target: Path, keep_row_numbers: bool) -> li
     import pandas as pd
 
     files, used = [], set()
-    too_big = [t for t in names if con.execute(f"SELECT COUNT(*) FROM {q(t)}").fetchall()[0][0] > EXCEL_MAX_ROWS]
+    too_big = [t for t in names if con.execute(f"SELECT COUNT(*) FROM {ident(t)}").fetchall()[0][0] > EXCEL_MAX_ROWS]
     if too_big:
         raise ExportError(f"{', '.join(too_big)} has more rows than an Excel sheet can hold "
                           f"({EXCEL_MAX_ROWS + 1:,}); export as csv or parquet instead")
     with pd.ExcelWriter(target, engine="openpyxl") as xw:
         for t in names:
-            df = con.execute(f"SELECT {_columns(con, t, keep_row_numbers)} FROM {q(t)}").df()
+            df = con.execute(f"SELECT {_columns(con, t, keep_row_numbers)} FROM {ident(t)}").df()
             sheet = re.sub(r"[\[\]:*?/\\]", "_", t)[:31]          # Excel sheet-name rules
             base, i = sheet, 2
             while sheet in used:

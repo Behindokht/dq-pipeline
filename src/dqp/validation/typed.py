@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import duckdb
 
-from dqp.profiling.profiler import _date_expr, _number_expr, q
+from dqp.profiling.profiler import _date_expr, _number_expr
+from dqp.sql import ident
 
 
 def typed_name(raw_table: str) -> str:
@@ -28,7 +29,7 @@ def cast_expr(column: str, prof: dict) -> str:
     kind = prof["inferred_type"]
     if kind == "mixed":
         kind = prof.get("mixed_dominant_type", "text")
-    v = f"trim({q(column)})"
+    v = f"trim({ident(column)})"
     if kind in ("numeric", "numeric_decimal_comma"):
         x = _number_expr(v, decimal_comma=kind == "numeric_decimal_comma")
         return f"CAST({x} AS BIGINT)" if (prof.get("numeric") or {}).get("integers") else x
@@ -38,12 +39,12 @@ def cast_expr(column: str, prof: dict) -> str:
         return _date_expr(v, prof.get("date", {}).get("slash_month_first", False))
     if kind == "boolean":
         return f"CASE WHEN lower({v}) IN ('true','yes','y') THEN TRUE WHEN lower({v}) IN ('false','no','n') THEN FALSE END"
-    return q(column)
+    return ident(column)
 
 
 def create_typed_view(con: duckdb.DuckDBPyConnection, raw_table: str, table_profile: dict) -> str:
     view = typed_name(raw_table)
-    cols = ", ".join(f"{cast_expr(c, p)} AS {q(c)}"
+    cols = ", ".join(f"{cast_expr(c, p)} AS {ident(c)}"
                      for c, p in table_profile["columns_profile"].items())
-    con.execute(f"CREATE OR REPLACE VIEW {q(view)} AS SELECT rowid + 1 AS _row, {cols} FROM {q(raw_table)}")
+    con.execute(f"CREATE OR REPLACE VIEW {ident(view)} AS SELECT rowid + 1 AS _row, {cols} FROM {ident(raw_table)}")
     return view

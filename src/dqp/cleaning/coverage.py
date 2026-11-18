@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from dqp.profiling.profiler import _period_index, open_days, q
+from dqp.profiling.profiler import _period_index, open_days
+from dqp.sql import ident
 
 MAX_LISTED = 12
 
@@ -58,23 +59,23 @@ def table_coverage(con, table: str, prof: dict) -> dict:
     d = prof["columns_profile"][date_col]["date"]
     out["frequency"] = d["frequency"]
     dates = pd.Series([r[0] for r in con.execute(
-        f"SELECT DISTINCT {q(date_col)} FROM {q(table)} WHERE {q(date_col)} IS NOT NULL").fetchall()])
+        f"SELECT DISTINCT {ident(date_col)} FROM {ident(table)} WHERE {ident(date_col)} IS NOT NULL").fetchall()])
     gaps = missing_periods(dates, d["frequency"], d.get("weekmask"))
     out["missing_period_count"] = len(gaps)
     out["missing_periods"] = gaps[:MAX_LISTED * 4]
 
-    types = {r[0]: r[1] for r in con.execute(f"DESCRIBE {q(table)}").fetchall()}
-    dc = q(date_col)
+    types = {r[0]: r[1] for r in con.execute(f"DESCRIBE {ident(table)}").fetchall()}
+    dc = ident(date_col)
     for col, typ in types.items():
         if col in (date_col, "_row") or typ == "VARCHAR":
             continue
-        c = q(col)
+        c = ident(col)
         first, last, n, internal, listed = con.execute(f"""
-            WITH b AS (SELECT MIN({dc}) AS f, MAX({dc}) AS l FROM {q(table)} WHERE {c} IS NOT NULL)
+            WITH b AS (SELECT MIN({dc}) AS f, MAX({dc}) AS l FROM {ident(table)} WHERE {c} IS NOT NULL)
             SELECT b.f, b.l, COUNT(t.{c}),
                    COUNT(*) FILTER (WHERE t.{c} IS NULL AND t.{dc} BETWEEN b.f AND b.l),
                    list(t.{dc} ORDER BY t.{dc}) FILTER (WHERE t.{c} IS NULL AND t.{dc} BETWEEN b.f AND b.l)
-            FROM {q(table)} t, b GROUP BY b.f, b.l""").fetchall()[0] if _has_values(con, table, col) \
+            FROM {ident(table)} t, b GROUP BY b.f, b.l""").fetchall()[0] if _has_values(con, table, col) \
             else (None, None, 0, 0, [])
         out["columns"][col] = {
             "first": str(first) if first else None, "last": str(last) if last else None, "values": n,
@@ -85,4 +86,4 @@ def table_coverage(con, table: str, prof: dict) -> dict:
 
 
 def _has_values(con, table, col) -> bool:
-    return con.execute(f"SELECT COUNT({q(col)}) FROM {q(table)}").fetchall()[0][0] > 0
+    return con.execute(f"SELECT COUNT({ident(col)}) FROM {ident(table)}").fetchall()[0][0] > 0

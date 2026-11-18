@@ -19,7 +19,7 @@ from datetime import date
 from html import escape
 from importlib import resources
 
-from dqp.profiling.profiler import q
+from dqp.sql import ident
 from dqp.report.charts import coverage_chart, line_chart, stage_bar
 
 FONTS = ("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&"
@@ -216,7 +216,7 @@ def _cleaning(con, cleaning: dict, report_cfg) -> str:
                          + f'<div class="reason">Reason: {e(s["reason"])}</div></li>')
         rejected = ""
         if info["rows_rejected"] and report_cfg.max_rejected_rows:
-            cur = con.execute(f"SELECT * FROM {q(info['rejected_table'])} ORDER BY _row "
+            cur = con.execute(f"SELECT * FROM {ident(info['rejected_table'])} ORDER BY _row "
                               f"LIMIT {report_cfg.max_rejected_rows}")
             names = [d[0] for d in cur.description]
             data = cur.fetchall()
@@ -296,8 +296,8 @@ def _numbers(con, facts, stg_profiles: dict, report_cfg) -> str:
         table = f[f"key.{st}.table"].value
         col = f[f"{base}.name"].value
         date_col = stg_profiles[table].get("main_date_column")
-        rows = con.execute(f"SELECT {q(date_col)}, {q(col)} FROM {q(table)} WHERE {q(col)} IS NOT NULL "
-                           f"AND {q(date_col)} IS NOT NULL ORDER BY 1").fetchall()
+        rows = con.execute(f"SELECT {ident(date_col)}, {ident(col)} FROM {ident(table)} WHERE {ident(col)} IS NOT NULL "
+                           f"AND {ident(date_col)} IS NOT NULL ORDER BY 1").fetchall()
         step = max(len(rows) // 600, 1)
         pts = [(r[0] if isinstance(r[0], date) else date.fromisoformat(str(r[0])[:10]), float(r[1]))
                for r in rows[::step]]

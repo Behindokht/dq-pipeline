@@ -28,14 +28,6 @@ def rule_label(rule: dict) -> str:
     return f"{kind}: {v}"
 
 
-def sql_name(c: str) -> str:
-    return c if c.replace("_", "a").isalnum() and c.islower() and not c[0].isdigit() else '"' + c.replace('"', '""') + '"'
-
-
-def sql_text(v: str) -> str:
-    return "'" + v.replace("'", "''") + "'"
-
-
 def portable(cfg: dict, an: Analysis) -> str:
     """The config as a file to keep: the data file next to it, outputs in outputs/."""
     cfg = copy.deepcopy(cfg)

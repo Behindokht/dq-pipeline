@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from dqp.profiling.profiler import q
+from dqp.sql import ident
 
 NUMERIC = ("DOUBLE", "BIGINT", "INTEGER", "HUGEINT", "FLOAT", "DECIMAL", "SMALLINT")
 MAX_CHECKS = 25
@@ -169,14 +169,14 @@ def _key_columns(con, config, cleaning: dict, profiles: dict) -> dict[str, list[
             t = next((c for c in (name, f"stg_{name}", f"mart_{name}") if c in tables), None)
             if t is None:
                 raise ValueError(f"summary.key_columns: table {name!r} not found; tables: {tables}")
-            have = {r[0] for r in con.execute(f"DESCRIBE {q(t)}").fetchall()}
+            have = {r[0] for r in con.execute(f"DESCRIBE {ident(t)}").fetchall()}
             missing = [c for c in cols if c not in have]
             if missing:
                 raise ValueError(f"summary.key_columns: {t} has no column(s) {missing}")
             chosen[t] = cols
         return chosen
     for t in cleaning["marts"]:
-        nums = [r[0] for r in con.execute(f"DESCRIBE {q(t)}").fetchall()
+        nums = [r[0] for r in con.execute(f"DESCRIBE {ident(t)}").fetchall()
                 if r[0] != "_row" and r[1].split("(")[0] in NUMERIC]
         if nums:
             chosen[t] = nums[:5]
@@ -189,17 +189,17 @@ def _key_numbers(con, fp: FactPack, table: str, cols: list[str], prof: dict) -> 
     fp.add(f"key.{st}.table", table, "text", "table the headline numbers come from")
     for col in cols:
         base = f"key.{st}.{col}"
-        c = q(col)
+        c = ident(col)
         fp.add(f"{base}.name", col, "text", "column")
         if not date_col:
-            mn, mx, avg = con.execute(f"SELECT MIN({c}), MAX({c}), AVG({c}) FROM {q(table)}").fetchall()[0]
+            mn, mx, avg = con.execute(f"SELECT MIN({c}), MAX({c}), AVG({c}) FROM {ident(table)}").fetchall()[0]
             fp.add(f"{base}.min", mn, "number", f"lowest {col}")
             fp.add(f"{base}.max", mx, "number", f"highest {col}")
             fp.add(f"{base}.mean", avg, "number", f"average {col}")
             continue
-        d = q(date_col)
+        d = ident(date_col)
         rows = con.execute(f"""
-            WITH v AS (SELECT {d} AS d, {c} AS x FROM {q(table)} WHERE {c} IS NOT NULL)
+            WITH v AS (SELECT {d} AS d, {c} AS x FROM {ident(table)} WHERE {c} IS NOT NULL)
             SELECT (SELECT x FROM v ORDER BY d DESC LIMIT 1), (SELECT d FROM v ORDER BY d DESC LIMIT 1),
                    (SELECT x FROM v ORDER BY x ASC, d LIMIT 1), (SELECT d FROM v ORDER BY x ASC, d LIMIT 1),
                    (SELECT x FROM v ORDER BY x DESC, d LIMIT 1), (SELECT d FROM v ORDER BY x DESC, d LIMIT 1),
@@ -214,7 +214,7 @@ def _key_numbers(con, fp: FactPack, table: str, cols: list[str], prof: dict) -> 
         fp.add(f"{base}.min_date", str(mn_d), "date", f"date of the lowest {col}")
         fp.add(f"{base}.max", mx, "number", f"highest {col}")
         fp.add(f"{base}.max_date", str(mx_d), "date", f"date of the highest {col}")
-        prev = con.execute(f"""SELECT {c}, {d} FROM {q(table)} WHERE {c} IS NOT NULL
+        prev = con.execute(f"""SELECT {c}, {d} FROM {ident(table)} WHERE {c} IS NOT NULL
                                AND {d} <= ?::DATE - INTERVAL 1 YEAR ORDER BY {d} DESC LIMIT 1""",
                            [latest_d]).fetchall()
         if prev and prev[0][0]:
