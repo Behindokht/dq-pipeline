@@ -80,8 +80,21 @@ def detect_csv(path: Path) -> dict:
     different number of fields does not change the outcome."""
     enc = _encoding(path)
     with open(path, encoding=enc, errors="replace", newline="") as f:
-        lines = [ln.rstrip("\r\n") for _, ln in zip(range(200), f)]
-    lines = [ln for ln in lines if ln.strip()]
+        physical = [ln.rstrip("\r\n") for _, ln in zip(range(400), f)]
+    lines, open_record = [], None
+    for ln in physical:                       # a quoted cell may hold a line break: one record, many lines
+        if open_record is not None:
+            open_record += "\n" + ln
+        elif ln.strip():
+            open_record = ln
+        else:
+            continue
+        if open_record.count('"') % 2 == 0:
+            lines.append(open_record)
+            open_record = None
+    if open_record is not None:
+        lines.append(open_record)
+    lines = lines[:200]
     if not lines:
         raise InitError(f"{path}: the file is empty")
     best = None
@@ -95,9 +108,15 @@ def detect_csv(path: Path) -> dict:
         if best is None or key > best[0]:
             best = (key, d, counts, common)
     if best is None:
-        raise InitError(f"{path}: no delimiter found; is it really a CSV file?")
+        if any("\x00" in ln for ln in lines):
+            raise InitError(f"{path}: this looks like a binary file, not a CSV file")
+        # no delimiter anywhere: a file with a single column (a list of values)
+        first = _split(lines[0], ",")
+        header = sum(_kind(v) == "text" for v in first) >= 0.5 * len(first)
+        return {"delimiter": ",", "header": header, "encoding": enc}
     _, delim, counts, common = best
     skip = next(i for i, c in enumerate(counts) if c == common)
+    skip = sum(ln.count("\n") + 1 for ln in lines[:skip])      # records -> physical lines
     first = _split(lines[skip], delim)
     header = sum(_kind(v) == "text" for v in first) >= 0.5 * len(first)
     settings = {"delimiter": delim, "header": header, "encoding": enc}
@@ -362,6 +381,8 @@ def profile_source(source: dict, dataset: str, notes: list[str] | None = None) -
         con.close()
     if notes is not None:
         notes += [f"{l.table}: {l.rows:,} rows x {l.columns} columns" for l in loads if l.table]
+        notes += [f"{l.table}: the file has a header but no data rows; nothing to check until rows are added"
+                  for l in loads if l.table and l.rows == 0]
     return profiles
 
 

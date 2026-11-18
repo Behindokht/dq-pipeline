@@ -446,6 +446,10 @@ Found by testing on purpose, kept here so nothing is overclaimed:
   If two columns would get the same name (`Order ID` and `order_id`), the one that is already tidy keeps
   it and the others are numbered `_2`, `_3`; the cleaning log lists each numbered name. A header with
   no letters or digits at all (`€`) becomes `column`, then `column_2`.
+- **Odd CSV shapes:** a line break inside a quoted cell is kept inside that cell (such files are read
+  with DuckDB's slower single-thread reader, and the load log says so). A file with a single column
+  loads as one column. A file with a header and no rows loads with 0 rows and fails the
+  "table has rows" check, which is the honest verdict.
 - **Sources:** CSV, Excel and Google Sheets. Private Google Sheets are not supported on purpose:
   they would need a Google login (OAuth or a service account) stored somewhere.
 - **`dqp init`** recognises numeric tables (header above rows of numbers and dates) and text tables

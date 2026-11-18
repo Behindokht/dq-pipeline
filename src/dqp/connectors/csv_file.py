@@ -11,6 +11,7 @@ from __future__ import annotations
 import duckdb
 
 from dqp.config import CsvSource
+from dqp.sql import ident
 from dqp.connectors.base import LoadResult, describe_table, ensure_file, file_sha256
 
 
@@ -34,17 +35,24 @@ def _explain(msg: str, path, source: CsvSource) -> str:
 def load_csv(source: CsvSource, con: duckdb.DuckDBPyConnection) -> list[LoadResult]:
     path, notes = ensure_file(source)
     table = f"raw_{source.name}"
-    try:
-        con.execute(
-            f"""
-            CREATE OR REPLACE TABLE "{table}" AS
-            SELECT * FROM read_csv(
-                ?, delim = ?, header = ?, encoding = ?, skip = ?,
-                all_varchar = true, auto_detect = true, null_padding = true, strict_mode = false
-            )
-            """,
-            [str(path), source.delimiter, source.header, source.encoding, source.skip_rows],
+    sql = """
+        CREATE OR REPLACE TABLE {table} AS
+        SELECT * FROM read_csv(
+            ?, delim = ?, header = ?, encoding = ?, skip = ?,
+            all_varchar = true, auto_detect = true, null_padding = true, strict_mode = false{extra}
         )
+        """
+    args = [str(path), source.delimiter, source.header, source.encoding, source.skip_rows]
+    try:
+        try:
+            con.execute(sql.format(table=ident(table), extra=""), args)
+        except duckdb.Error as exc:
+            if "parallel" not in str(exc) or "quoted new lines" not in str(exc):
+                raise
+            # a cell with a line break inside quotes: the parallel reader cannot pad short
+            # lines then; the single-thread reader can, a little slower
+            con.execute(sql.format(table=ident(table), extra=", parallel = false"), args)
+            notes = [*notes, "cells with a line break inside quotes: read with the single-thread reader"]
     except duckdb.Error as exc:
         raise CsvLoadError(_explain(str(exc), path, source)) from None
     rows, names = describe_table(con, table)
