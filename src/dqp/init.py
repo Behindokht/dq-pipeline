@@ -406,13 +406,14 @@ def suggest(profiles: dict, skip: set[tuple[str, str]] | None = None) -> tuple[l
             out.append(Suggestion("cleaning", short, {"rename": {date_col: "date"}}, "the date column has no name in the file"))
             if (short, "rename") not in skip:
                 names[date_col] = "date"
-        renamed = [(c, _snake(names[c])) for c in cols if names[c] != _snake(names[c])]
+        tidy = _snake_map(list(names.values()))
+        renamed = [(c, tidy[names[c]]) for c in cols if names[c] != tidy[names[c]]]
         if renamed:
             c0, n0 = renamed[0]
             out.append(Suggestion("cleaning", short, {"snake_case": True},
                                   f"column names to lower_snake_case, e.g. {c0!r} -> {n0}; {len(renamed)} column(s)"))
             if (short, "snake_case") not in skip:
-                names = {c: _snake(n) for c, n in names.items()}
+                names = {c: tidy[n] for c, n in names.items()}
         ws = [c for c, p in cols.items() if p["whitespace_values"]]
         if ws:
             out.append(Suggestion("cleaning", short, {"trim_whitespace": True},
@@ -571,9 +572,9 @@ def _code_values(p: dict) -> bool:
     return bool(ex) and all(re.fullmatch(r"[A-Za-z]{0,3}\d+[A-Za-z]{0,3}", v.strip()) for v in ex)
 
 
-def _snake(name: str) -> str:
-    from dqp.cleaning import snake
-    return snake(name)
+def _snake_map(columns: list[str]) -> dict[str, str]:
+    from dqp.cleaning.staging import snake_map
+    return snake_map(columns)
 
 
 def _yaml_scalar(name: str) -> str:

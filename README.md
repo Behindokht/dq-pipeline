@@ -442,6 +442,10 @@ Found by testing on purpose, kept here so nothing is overclaimed:
 - **Reserved column names:** a source column called `rowid`, `_row`, `_step`, `_action` or `_reason`
   is renamed to `<name>_source` on load, because the pipeline uses these names itself. The load log
   says so. Any other name, including SQL keywords like `order` or `table`, is kept as it is.
+- **Column names:** tidying keeps letters and digits of any script (Persian, Greek, Chinese, accents).
+  If two columns would get the same name (`Order ID` and `order_id`), the one that is already tidy keeps
+  it and the others are numbered `_2`, `_3`; the cleaning log lists each numbered name. A header with
+  no letters or digits at all (`€`) becomes `column`, then `column_2`.
 - **Sources:** CSV, Excel and Google Sheets. Private Google Sheets are not supported on purpose:
   they would need a Google login (OAuth or a service account) stored somewhere.
 - **`dqp init`** recognises numeric tables (header above rows of numbers and dates) and text tables

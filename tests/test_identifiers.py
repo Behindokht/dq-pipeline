@@ -97,15 +97,11 @@ def test_only_one_quoting_helper_remains():
 
 
 hypothesis = pytest.importorskip("hypothesis")
-from hypothesis import HealthCheck, assume, given, settings  # noqa: E402
+from hypothesis import HealthCheck, given, settings  # noqa: E402
 from hypothesis import strategies as st  # noqa: E402
-
-from dqp.cleaning.staging import snake  # noqa: E402
 
 
 @settings(max_examples=40, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(name=st.text(st.characters(blacklist_categories=("Cc", "Cs", "Zl", "Zp")), max_size=24))
 def test_generated_column_names_survive(tmp_path_factory, name):
-    # collisions with the other two columns are WP3 (column names), not this test
-    assume(name.strip().lower() not in ("date", "label") and snake(name) not in ("date", "label"))
     test_any_column_name_survives_the_whole_pipeline(tmp_path_factory.mktemp("h"), name)

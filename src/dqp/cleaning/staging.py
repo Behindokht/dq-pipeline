@@ -26,6 +26,7 @@ Rules this module follows:
 from __future__ import annotations
 
 import re
+import unicodedata
 
 import duckdb
 
@@ -44,13 +45,33 @@ def short_name(raw_table: str) -> str:
 
 
 def snake(name: str) -> str:
-    s = re.sub(r"[^0-9a-zA-Z]+", "_", name).strip("_").lower()
-    s = re.sub(r"_+", "_", s)
+    """lower_snake_case that keeps the letters and digits of any script (Persian, Greek,
+    Chinese, accents); everything else becomes one underscore."""
+    s = "".join(ch if unicodedata.category(ch)[0] in "LNM" else "_" for ch in unicodedata.normalize("NFC", name))
+    s = re.sub(r"_+", "_", s.strip("_")).lower()
     if not s:
         s = "column"
     if s[0].isdigit():
         s = "c_" + s
     return s
+
+
+def snake_map(columns: list[str]) -> dict[str, str]:
+    """Old name -> tidy name for every column, with no two columns ending up the same.
+    A column that is already tidy keeps its name; a column that would clash gets _2, _3 ...
+    in file order. Used by both `init` (to predict) and the cleaning step (to do it)."""
+    out = {c: c for c in columns if snake(c) == c}
+    used = set(out.values())
+    for c in columns:
+        if c in out:
+            continue
+        base = new = snake(c)
+        k = 2
+        while new in used:
+            new, k = f"{base}_{k}", k + 1
+        used.add(new)
+        out[c] = new
+    return {c: out[c] for c in columns}
 
 
 def _columns(con, table: str) -> dict[str, str]:
@@ -168,22 +189,19 @@ def _apply(con, stg, rej, raw_table, step: CleaningStep, i: int, lineage: dict, 
 
     if kind == "snake_case":
         current = list(_columns(con, stg))
-        mapping, used = {}, set()
-        for c in current:
-            new, k = snake(c), 2
-            while new in used:
-                new, k = f"{snake(c)}_{k}", k + 1
-            used.add(new)
-            if new != c:
-                mapping[c] = new
-        for old, new in mapping.items():
-            con.execute(f"ALTER TABLE {ident(stg)} RENAME COLUMN {ident(old)} TO {ident(new)}")
+        mapping = {c: n for c, n in snake_map(current).items() if n != c}
+        clashes = [(c, n) for c, n in mapping.items() if n != snake(c)]
+        for k, old in enumerate(mapping):          # two steps, so that swapped names cannot collide
+            con.execute(f"ALTER TABLE {ident(stg)} RENAME COLUMN {ident(old)} TO {ident('__dqp_tmp_' + str(k))}")
+        for k, (old, new) in enumerate(mapping.items()):
+            con.execute(f"ALTER TABLE {ident(stg)} RENAME COLUMN {ident('__dqp_tmp_' + str(k))} TO {ident(new)}")
             lineage[new] = lineage.pop(old)
         shown = list(mapping.items())[:6]
         return _entry(stg, i, kind, "consistent lower_snake_case column names, easy to use in SQL",
                       columns=list(mapping.values()),
                       details=f"{len(mapping)} column(s) renamed" + (": " + ", ".join(f"{o!r} -> {n}" for o, n in shown)
-                                                                     + (" ..." if len(mapping) > 6 else "") if mapping else ""))
+                                                                     + (" ..." if len(mapping) > 6 else "") if mapping else "")
+                      + ("; same name after tidying, so numbered: " + ", ".join(f"{o!r} -> {n}" for o, n in clashes) if clashes else ""))
 
     if kind == "trim_whitespace":
         changed, cols = 0, []
