@@ -79,3 +79,14 @@ def test_an_empty_file_is_refused_in_words(tmp_path):
     src.write_text("", encoding="utf-8")
     with pytest.raises(InitError, match="empty"):
         detect_csv(src)
+
+
+def test_an_uncommented_empty_section_is_read_as_empty(tmp_path):
+    from dqp.config import load_config
+    src = tmp_path / "a.csv"
+    src.write_text("a,b\n1,2\n", encoding="utf-8")
+    path = tmp_path / "a.yaml"
+    path.write_text(f"dataset: a\nsources:\n  - name: a\n    type: csv\n    path: {src}\n"
+                    "validation:\ncleaning:\ntext_columns:\nmarts:\n", encoding="utf-8")
+    cfg, _ = load_config(path)
+    assert cfg.validation.rules == [] and cfg.cleaning == {} and cfg.marts == []

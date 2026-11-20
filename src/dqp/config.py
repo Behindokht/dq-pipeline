@@ -371,6 +371,16 @@ class DatasetConfig(_Strict):
     report: ReportConfig = Field(default_factory=ReportConfig)
     output_dir: Path | None = None
 
+    @field_validator("profiling", "text_columns", "cleaning", "marts", "validation", "summary", "report",
+                     mode="before")
+    @classmethod
+    def _empty_section(cls, v, info):
+        # an uncommented but empty section (`validation:` with nothing under it) is YAML null:
+        # read it as "nothing set" instead of refusing the file
+        if v is None:
+            return [] if info.field_name == "marts" else {}
+        return v
+
     @field_validator("marts")
     @classmethod
     def _unique_marts(cls, marts: list) -> list:

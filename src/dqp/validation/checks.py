@@ -323,6 +323,25 @@ def _short_id(table: str) -> str:
     return table
 
 
+def check_rule(con, rule: Rule, profiles: dict, targets: dict[str, Target], stage: str,
+               max_examples: int = 3) -> CheckResult:
+    """One rule against one stage. A rule that cannot run is an ERROR result, not an exception."""
+    tables = list(profiles)
+    t = resolve_table(rule.table, tables, stage)
+    if t is None:
+        return CheckResult(check_id="", table=rule.table, name=rule.name or rule.kind, origin="rule",
+                           stage=stage, kind=rule.kind, severity=rule.severity, status="ERROR",
+                           detail=f"table {rule.table!r} not found at stage {stage!r}; tables: {tables}")
+    try:
+        return run_rule(con, rule, targets[t], profiles[t], max_examples)
+    except (duckdb.Error, ValueError) as exc:
+        msg = str(exc).splitlines()[0]
+        msg += _hint_untyped(rule, profiles[t])
+        return CheckResult(check_id="", table=t, name=rule.name or rule.kind, origin="rule",
+                           stage=stage, kind=rule.kind, severity=rule.severity, status="ERROR",
+                           detail=f"rule could not run: {msg}", description=rule.description)
+
+
 def run_validation(con: duckdb.DuckDBPyConnection, profiles: dict, targets: dict[str, Target],
                    cfg: ValidationConfig, stage: str, max_examples: int = 3) -> dict:
     """Run the generic checks on every table in `profiles`, and the rules for this stage.
@@ -334,20 +353,7 @@ def run_validation(con: duckdb.DuckDBPyConnection, profiles: dict, targets: dict
         results.extend(generic_checks(con, targets[t], profiles[t], cfg, max_examples, stage))
 
     for rule in (r for r in cfg.rules if r.stage == stage):
-        t = resolve_table(rule.table, tables, stage)
-        if t is None:
-            results.append(CheckResult(check_id="", table=rule.table, name=rule.name or rule.kind, origin="rule",
-                                       stage=stage, kind=rule.kind, severity=rule.severity, status="ERROR",
-                                       detail=f"table {rule.table!r} not found at stage {stage!r}; tables: {tables}"))
-            continue
-        try:
-            results.append(run_rule(con, rule, targets[t], profiles[t], max_examples))
-        except (duckdb.Error, ValueError) as exc:
-            msg = str(exc).splitlines()[0]
-            msg += _hint_untyped(rule, profiles[t])
-            results.append(CheckResult(check_id="", table=t, name=rule.name or rule.kind, origin="rule",
-                                       stage=stage, kind=rule.kind, severity=rule.severity, status="ERROR",
-                                       detail=f"rule could not run: {msg}", description=rule.description))
+        results.append(check_rule(con, rule, profiles, targets, stage, max_examples))
 
     checks: dict[str, dict] = {}
     for r in results:

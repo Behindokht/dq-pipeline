@@ -29,10 +29,12 @@ from pydantic import ValidationError
 
 from dqp.config import DatasetConfig, slugify
 from dqp.connectors import load_source
+from dqp.errors import explain
 from dqp.export import ExportError, export_run
 from dqp.gui.helpers import is_number, parse_rows, portable, rule_label
-from dqp.init import Analysis, InitError, Suggestion, analyse, profile_source, suggest
+from dqp.init import Analysis, Suggestion, analyse, profile_source, suggest
 from dqp.pipeline import run
+from dqp.preview import KINDS, RulePreview
 from dqp.sql import ident_if_needed as sql_name
 from dqp.sql import text as sql_text
 from dqp.profiling.highlights import build_highlights
@@ -54,6 +56,14 @@ def work_dir() -> Path:
     if "work" not in ss:
         ss.work = Path(tempfile.mkdtemp(prefix="dqp-gui-"))
     return ss.work
+
+
+def show_error(exc: BaseException, lead: str = "") -> None:
+    """One plain sentence, the technical details folded away underneath."""
+    sentence, details = explain(exc)
+    st.error((lead + " " if lead else "") + sentence)
+    with st.expander("Details (for a bug report)"):
+        st.code(details, language="text")
 
 
 def reset(keep_step: bool = False) -> None:
@@ -221,8 +231,8 @@ def step_data() -> None:
         with st.spinner("Reading the data and looking for problems…"):
             try:
                 an = analyse(src, slugify(name) if name.strip() else None, download_dir=work_dir() / "downloads")
-            except (InitError, ValidationError, ValueError) as exc:
-                st.error(str(exc))
+            except Exception as exc:          # anything: a person sees a sentence, not a traceback
+                show_error(exc)
                 return
         keep = {k: ss[k] for k in ("how", "url", "name") if k in ss}
         reset()
@@ -270,7 +280,11 @@ def saved_settings() -> None:
         path = work_dir() / f"{cfg['dataset']}.yaml"
         path.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding="utf-8")
         with st.spinner("Profiling, cleaning and checking…"):
-            log = run(path)
+            try:
+                log = run(path)
+            except Exception as exc:
+                show_error(exc, "The run stopped.")
+                return
         src = cfg["sources"][0]
         label = "the Google Sheet" if src["type"] == "gsheet" else Path(src["path"]).name
         an = Analysis(cfg["dataset"], src, Path(src.get("path", "")), label, [], {})
@@ -325,8 +339,8 @@ def step_layout(an: Analysis) -> None:
                         an.suggestions, an.final_names = suggest(an.profiles)
                     ss.pop("preview", None)
                     st.rerun()
-                except (ValueError, ValidationError) as exc:
-                    st.error(str(exc))
+                except Exception as exc:
+                    show_error(exc)
 
     if "preview" not in ss:
         ss.preview = preview(an)
@@ -336,6 +350,8 @@ def step_layout(an: Analysis) -> None:
                     + (f" · dates {prof['columns_profile'][prof['main_date_column']]['date']['min']} to "
                        f"{prof['columns_profile'][prof['main_date_column']]['date']['max']}"
                        if prof.get("main_date_column") else "") + "</div>", unsafe_allow_html=True)
+        if prof["rows"] == 0:
+            st.warning("This table has a header but no data rows. There is nothing to check until rows are added.")
         st.dataframe(ss.preview.get(t), hide_index=True, width="stretch")
         hl = build_highlights(t, prof)
         if hl:
@@ -430,11 +446,17 @@ def step_rules(an: Analysis) -> None:
             st.code(v, language="sql")
 
     st.markdown("### Add a rule")
-    cols = final_columns(an)
+    pv, cols = rule_preview(an), final_columns(an)
     c1, c2, c3 = st.columns(3)
     table = c1.selectbox("Table", list(cols), key="r_table")
-    col = c2.selectbox("Column", cols[table], key="r_col")
-    kind = c3.selectbox("Must be", ["never empty", "unique", "between", "one of", "a condition (SQL)"], key="r_kind")
+    types = pv.columns(table) if pv and table in pv.tables() else {}
+    names = list(types) or cols[table]
+    col = c2.selectbox("Column", names, key="r_col",
+                       format_func=lambda c: f"{c}  ({types[c]})" if c in types else c)
+    kinds = KINDS[types[col]] if col in types else KINDS["number"] + ["one of"]
+    if ss.get("r_kind") not in kinds:
+        ss.r_kind = kinds[0]
+    kind = c3.selectbox("Must be", kinds, key="r_kind")
     rule: dict = {}
     if kind == "never empty":
         rule = {"not_null": [col]}
@@ -449,21 +471,61 @@ def step_rules(an: Analysis) -> None:
         vals = [v.strip() for v in st.text_input("Allowed values, separated by commas", key="r_vals").split(",")]
         rule = {"allowed": {"column": col, "values": [v for v in vals if v]}} if any(vals) else {}
     else:
-        expr = st.text_input("Condition every row must meet", key="r_expr", placeholder=f"{sql_name(col)} > 0")
+        expr = st.text_input("Condition every row must meet", key="r_expr", placeholder=f"{sql_name(col)} > 0"
+                             if types.get(col) == "number" else f"{sql_name(col)} IS NOT NULL")
         rule = {"expr": expr.strip()} if expr.strip() else {}
     sev = st.radio("If it does not hold", ["fail", "warn"], horizontal=True, key="r_sev",
                    format_func={"fail": "the check fails", "warn": "only a warning"}.get)
-    if st.button("Add rule", key="r_add", disabled=not rule):
-        ss.setdefault("custom_rules", []).append({"table": table, "rule": {**rule, "severity": sev}})
+    tried = try_rule(pv, table, rule) if rule else None
+    if tried and not tried["ok"]:
+        st.error(tried["message"][0].upper() + tried["message"][1:] + ".")
+    elif tried:
+        st.markdown(f"<div class='dqp-note'>{e(tried['message'])}</div>", unsafe_allow_html=True)
+    if st.button("Add rule", key="r_add", disabled=not rule or bool(tried and not tried["ok"])):
+        ss.setdefault("custom_rules", []).append({"table": table, "rule": {**rule, "severity": sev},
+                                                  "now": tried["message"] if tried else ""})
         st.rerun()
     for i, r in enumerate(ss.get("custom_rules", [])):
         a, b = st.columns([6, 1])
         a.markdown(f"<div class='dqp-custom'>{e(r['table'])}: {e(rule_label(r['rule']))}"
-                   f"{' (warning)' if r['rule']['severity'] == 'warn' else ''}</div>", unsafe_allow_html=True)
+                   f"{' (warning)' if r['rule']['severity'] == 'warn' else ''}"
+                   + (f"<div class='dqp-note'>{e(r['now'])}</div>" if r.get("now") else "") + "</div>",
+                   unsafe_allow_html=True)
         if b.button("Remove", key=f"r_rm{i}"):
             ss.custom_rules.pop(i)
             st.rerun()
     nav(next_label="Next")
+
+
+def rule_preview(an: Analysis) -> RulePreview | None:
+    """The cleaned data in memory, built once per choice of cleaning steps, for trying rules."""
+    acc, missing = accepted(an)
+    cfg = an.config([s for s in acc if s.section != "rules"])
+    cfg["sources"] = [local_source(an)]
+    key = yaml.safe_dump(cfg, sort_keys=True)
+    if ss.get("rule_preview_key") != key:
+        old = ss.pop("rule_preview", None)
+        if old:
+            old.close()
+        ss.rule_preview_key, ss.rule_tries = key, {}
+        try:
+            with st.spinner("Applying the cleaning steps, to try rules on the cleaned data…"):
+                ss.rule_preview = RulePreview(cfg)
+            ss.rule_preview_error = None
+        except Exception as exc:
+            ss.rule_preview, ss.rule_preview_error = None, exc
+    if ss.get("rule_preview_error") is not None:
+        show_error(ss.rule_preview_error, "The cleaning steps cannot be applied, so new rules cannot be tried.")
+    return ss.get("rule_preview")
+
+
+def try_rule(pv: RulePreview | None, table: str, rule: dict) -> dict | None:
+    if pv is None:
+        return None
+    k = table + yaml.safe_dump(rule, sort_keys=True)
+    if k not in ss.rule_tries:
+        ss.rule_tries[k] = pv.check(table, rule)
+    return ss.rule_tries[k]
 
 
 # ------------------------------------------------------------------ 5 results
@@ -502,7 +564,11 @@ def step_results(an: Analysis) -> None:
         path = work_dir() / f"{an.dataset}.yaml"
         path.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding="utf-8")
         with st.spinner("Profiling, cleaning and checking…"):
-            ss.result, ss.result_cfg = run(path), cfg
+            try:
+                ss.result, ss.result_cfg = run(path), cfg
+            except Exception as exc:
+                ss.pop("result", None)
+                show_error(exc, "The run stopped.")
     if "result" in ss:
         show_result(an, ss.result, ss.result_cfg)
     nav(next_label="")

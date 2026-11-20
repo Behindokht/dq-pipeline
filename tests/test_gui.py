@@ -189,3 +189,66 @@ def test_an_uploaded_workbook():
     at.button(key="analyse").click().run()
     an = at.session_state.an
     assert an.source["type"] == "excel" and set(an.profiles) == {"raw_pipeline__deals", "raw_pipeline__owners"}
+
+
+def test_a_damaged_workbook_gets_a_sentence_not_a_traceback():
+    at = start()
+    at.file_uploader(key="upload").set_value(
+        ("pipeline.xlsx", b"PK\x03\x04garbage garbage",
+         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).run()
+    at.button(key="analyse").click().run()
+    assert not at.exception and at.session_state.step == 0
+    assert "workbook could not be opened" in at.error[0].value
+    assert at.expander[0].label.startswith("Details")
+
+
+def test_a_header_only_file_is_said_at_the_layout_step():
+    at = start()
+    at.file_uploader(key="upload").set_value(("empty.csv", b"id,amount,date\n", "text/csv")).run()
+    at.button(key="analyse").click().run()
+    assert not at.exception and at.session_state.step == 1
+    assert any("no data rows" in w.value for w in at.warning)
+
+
+def test_a_run_that_stops_says_why(monkeypatch):
+    import dqp.pipeline
+
+    def boom(path, llm_client=None):
+        raise dqp.pipeline.CleaningError("stg_shop_orders, cleaning step 2 (drop_rows): "
+                                         'Binder Error: Referenced column "nosuch" not found in FROM clause!')
+    monkeypatch.setattr(dqp.pipeline, "run", boom)
+    at = analyse_example(start())
+    at.button(key="next1").click().run()
+    fill_reasons(at)
+    for k in ("next2", "next3", "run"):
+        at.button(key=k).click().run()
+    assert not at.exception and "result" not in at.session_state
+    assert "The run stopped. Cleaning step 2 (drop rows)" in at.error[0].value
+    assert "no column called 'nosuch'" in at.error[0].value
+
+
+def test_the_rule_builder_offers_what_fits_and_tries_it():
+    at = analyse_example(start())
+    at.button(key="next1").click().run()
+    fill_reasons(at)
+    at.button(key="next2").click().run()
+    at.selectbox(key="r_col").set_value("product").run()
+    assert "between" not in at.selectbox(key="r_kind").options          # text: no number range
+    assert "one of" in at.selectbox(key="r_kind").options
+    at.selectbox(key="r_col").set_value("qty").run()
+    assert "between" in at.selectbox(key="r_kind").options and "one of" not in at.selectbox(key="r_kind").options
+
+    at.selectbox(key="r_kind").set_value("a condition (SQL)").run()
+    at.text_input(key="r_expr").set_value("nosuch > 0").run()
+    assert "no column called 'nosuch'" in at.error[0].value
+    assert at.button(key="r_add").disabled                               # a rule that cannot run stays out
+
+    at.text_input(key="r_expr").set_value("qty <= 3").run()
+    assert not at.error and not at.button(key="r_add").disabled
+    assert any("rows break this rule now" in m.value or "rows meet this rule now" in m.value for m in at.markdown)
+    at.button(key="r_add").click().run()
+    assert at.session_state.custom_rules[0]["now"]
+    at.button(key="next3").click().run()
+    at.button(key="run").click().run()
+    log = at.session_state.result
+    assert not [c for c in log["checks"].values() if c["status"] == "ERROR"]

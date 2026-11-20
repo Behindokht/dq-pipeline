@@ -28,7 +28,8 @@ def main(argv: list[str] | None = None) -> int:
     run_cmd.add_argument("configs", nargs="+", help="path(s) to YAML config files")
     run_cmd.add_argument("--strict", action="store_true",
                          help="exit with code 2 if any check FAILs or ERRORs (for CI)")
-    run_cmd.add_argument("-v", "--verbose", action="store_true", help="also print profile highlights")
+    run_cmd.add_argument("-v", "--verbose", action="store_true",
+                         help="also print profile highlights, and the full error details if a run fails")
     site_cmd = sub.add_parser("site", help="build the static site (GitHub Pages) from finished runs")
     site_cmd.add_argument("runs", nargs="+", help="output folders of finished runs, e.g. outputs/copper")
     site_cmd.add_argument("--out", default="site", help="folder to write the site to (default: site)")
@@ -52,6 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     init_cmd.add_argument("--name", default=None, help="dataset name (default: from the file name)")
     init_cmd.add_argument("--out", default=None, help="config file to write (default: configs/<name>.yaml)")
     init_cmd.add_argument("--force", action="store_true", help="overwrite an existing config")
+    init_cmd.add_argument("-v", "--verbose", action="store_true", help="show the full error details if it fails")
     gui_cmd = sub.add_parser("gui", help="open the step-by-step interface in the browser")
     gui_cmd.add_argument("--port", type=int, default=None, help="port to serve on (default 8501)")
     gui_cmd.add_argument("--no-browser", action="store_true", help="do not open a browser window")
@@ -60,11 +62,11 @@ def main(argv: list[str] | None = None) -> int:
         from dqp.gui import launch
         return launch(args.port, not args.no_browser)
     if args.command == "init":
-        from dqp.init import InitError, write_config
+        from dqp.init import write_config
         try:
             target, notes = write_config(args.file, args.out, args.name, args.force)
-        except (InitError, FileNotFoundError) as exc:
-            print(f"[failed] {exc}", file=sys.stderr)
+        except Exception as exc:
+            _fail(f"[failed] {args.file}", exc, args.verbose)
             return 1
         print(f"wrote {target}")
         for n in notes:
@@ -108,12 +110,8 @@ def main(argv: list[str] | None = None) -> int:
     for path in args.configs:
         try:
             log = run(path)
-        except ValidationError as exc:
-            print(f"[config error] {path}\n{exc}", file=sys.stderr)
-            failed += 1
-            continue
         except Exception as exc:
-            print(f"[failed] {path}: {type(exc).__name__}: {exc}", file=sys.stderr)
+            _fail(f"[{'config error' if isinstance(exc, ValidationError) else 'failed'}] {path}", exc, args.verbose)
             failed += 1
             continue
 
@@ -171,6 +169,17 @@ def main(argv: list[str] | None = None) -> int:
     if failed:
         return 1
     return 2 if (args.strict and invalid) else 0
+
+
+def _fail(head: str, exc: BaseException, verbose: bool) -> None:
+    """One plain sentence; the traceback only with -v."""
+    from dqp.errors import explain
+    sentence, details = explain(exc)
+    print(f"{head}: {sentence}", file=sys.stderr)
+    if verbose:
+        print(details, file=sys.stderr)
+    else:
+        print("  (run again with -v for the full details)", file=sys.stderr)
 
 
 def _print_stage(title: str, result: dict, checks: dict, stage: str, show_details: bool) -> None:

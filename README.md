@@ -22,7 +22,7 @@ summarises it, with an AI summary layer that only works on validated, computed n
 | 6. Output | HTML report, GitHub Actions (tests on Python 3.10 and 3.12, pipeline run, Pages deploy) | ✅ done |
 | GUI | step-by-step browser interface over the same pipeline (`dqp gui`) | ✅ done |
 
-187 tests cover the layers and the GUI (`pytest`).
+259 tests cover the layers and the GUI (`pytest`).
 
 ## Example: one million real transactions
 
@@ -138,7 +138,9 @@ not uploaded anywhere (a Google Sheet is downloaded from Google, nothing more).
    your own words before you can go on; it goes into the cleaning log. Nothing is deleted: set-aside
    rows go to a `rejected_` table.
 4. **Rules**: suggested rules to keep or untick, and a builder (column + never empty / unique /
-   between / one of / SQL condition, as a failure or only a warning).
+   between / one of / SQL condition, as a failure or only a warning). The builder offers only the rule
+   kinds that fit the column's type after cleaning, tries each rule on the cleaned data before it is
+   added ("41 of 83 rows break this rule now"), and keeps out a rule that cannot run, saying why.
 5. **Results**: the verdict, checks before and after cleaning, what needs a look, the summary, the
    cleaned tables and the rows set aside (with the step and reason that set each one aside), and
    the full report. Download the cleaned data (Excel or CSV), the report, and the settings as a
@@ -147,6 +149,10 @@ not uploaded anywhere (a Google Sheet is downloaded from Google, nothing more).
 | Cleaning: suggestions and reasons | Results |
 |---|---|
 | ![Cleaning step](docs/gui/cleaning.png) | ![Results step](docs/gui/results.png) |
+
+When something goes wrong (a damaged or password-protected workbook, a cleaning step whose condition
+names a missing column), the GUI shows one plain sentence and keeps the technical details in a fold
+underneath; the command line prints the same sentence and the details only with `-v`.
 
 The GUI does no checking of its own. It builds the same config `dqp init` writes and calls the same
 functions as the command line, so the two cannot disagree (a test runs the downloaded settings with
@@ -450,6 +456,8 @@ Found by testing on purpose, kept here so nothing is overclaimed:
   with DuckDB's slower single-thread reader, and the load log says so). A file with a single column
   loads as one column. A file with a header and no rows loads with 0 rows and fails the
   "table has rows" check, which is the honest verdict.
+- **Trying a rule in the GUI** applies the chosen cleaning steps once in memory. On a very large file
+  this takes about as long as the cleaning part of a run; it is redone only when the cleaning choices change.
 - **Sources:** CSV, Excel and Google Sheets. Private Google Sheets are not supported on purpose:
   they would need a Google login (OAuth or a service account) stored somewhere.
 - **`dqp init`** recognises numeric tables (header above rows of numbers and dates) and text tables

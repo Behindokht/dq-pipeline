@@ -133,17 +133,7 @@ def run(config_path: str | Path, llm_client=None) -> dict:
 
         # profile, document and validate the cleaned data
         with _Timer() as tm:
-            stg_settings = replace(settings, row_expr="_row")
-            stg_profiles, stg_targets = {}, {}
-            for stg, info in cleaning["tables"].items():
-                stg_profiles[stg] = _profile_typed(con, stg, stg_settings)
-                forced = text_cols.get(info["raw_table"], [])
-                _force_text(stg_profiles[stg], [c for c, rc in info["lineage"].items() if rc in forced])
-                _apply_cast_losses(stg_profiles[stg], info["cast_losses"])
-                stg_targets[stg] = Target(name=stg, view=stg, raw=info["raw_table"], lineage=info["lineage"])
-            for mart in cleaning["marts"]:
-                stg_profiles[mart] = _profile_typed(con, mart, stg_settings)
-                stg_targets[mart] = Target(name=mart, view=mart)
+            stg_profiles, stg_targets = _staging_targets(con, cleaning, text_cols, settings)
             _store_profiles(con, log["run_id"], "staging", stg_profiles, [])
             coverage = {t: table_coverage(con, t, p) for t, p in stg_profiles.items()}
             v_stg = run_validation(con, stg_profiles, stg_targets, config.validation, "staging",
@@ -214,6 +204,44 @@ def _summary_md(dataset: str, log: dict, summary: dict) -> str:
 
 
 # ---------------------------------------------------------------- cleaning
+
+def _staging_targets(con, cleaning: dict, text_cols: dict, settings: ProfileSettings) -> tuple[dict, dict]:
+    """Profiles and validation targets of the cleaned tables and marts."""
+    stg_settings = replace(settings, row_expr="_row")
+    profiles, targets = {}, {}
+    for stg, info in cleaning["tables"].items():
+        profiles[stg] = _profile_typed(con, stg, stg_settings)
+        forced = text_cols.get(info["raw_table"], [])
+        _force_text(profiles[stg], [c for c, rc in info["lineage"].items() if rc in forced])
+        _apply_cast_losses(profiles[stg], info["cast_losses"])
+        targets[stg] = Target(name=stg, view=stg, raw=info["raw_table"], lineage=info["lineage"])
+    for mart in cleaning["marts"]:
+        profiles[mart] = _profile_typed(con, mart, stg_settings)
+        targets[mart] = Target(name=mart, view=mart)
+    return profiles, targets
+
+
+def prepare_staging(config) -> tuple[duckdb.DuckDBPyConnection, dict, dict]:
+    """Load, type and clean the data in memory, as `run` does, without checks,
+    reports or files. For trying a rule before it is added (the GUI rule builder).
+    Returns the connection (the caller closes it), staging profiles and targets."""
+    con = duckdb.connect()
+    try:
+        raw_tables = [r.table for src in config.sources for r in load_source(src, con) if r.table]
+        settings = ProfileSettings(**config.profiling.model_dump())
+        raw_profiles = {t: profile_table(con, t, settings) for t in raw_tables}
+        text_cols = _text_columns(config, raw_tables, raw_profiles)
+        for t, cols in text_cols.items():
+            _force_text(raw_profiles[t], cols)
+        for t in raw_tables:
+            create_typed_view(con, t, raw_profiles[t])
+        cleaning = _clean(con, config, raw_tables)
+        profiles, targets = _staging_targets(con, cleaning, text_cols, settings)
+    except Exception:
+        con.close()
+        raise
+    return con, profiles, targets
+
 
 def _clean(con, config, raw_tables: list[str]) -> dict:
     by_short = {t.removeprefix("raw_"): t for t in raw_tables}
