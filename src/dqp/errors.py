@@ -21,7 +21,7 @@ def sql_problem(message: str) -> str:
     if m:
         return f"the SQL is not complete or not valid (near {m.group(1)})"
     if "syntax error at end of input" in first:
-        return "the SQL stops too early, something is missing at the end"
+        return "the SQL is not complete or not valid (it stops too early)"
     m = re.search(r"Cannot compare values of type (\w+) and (?:type )?(\w+)", first) or \
         re.search(r"Cannot compare (\w+) and (\w+)", first)
     if m:

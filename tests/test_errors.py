@@ -62,6 +62,9 @@ def test_other_known_and_unknown_errors():
     assert "unexpected" in sentence and "RuntimeError: boom" in sentence
     assert sql_problem("Binder Error: Cannot compare values of type VARCHAR and type DECIMAL(2,1)") \
         == "it compares a text with a number"
+    # DuckDB versions word an unfinished condition differently; the sentence is the same
+    for msg in ('Parser Error: syntax error at or near ")"', "Parser Error: syntax error at end of input"):
+        assert sql_problem(msg).startswith("the SQL is not complete or not valid")
 
 
 def test_cli_prints_the_sentence_and_the_traceback_only_with_v(tmp_path, capsys):
